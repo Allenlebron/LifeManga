@@ -63,3 +63,11 @@ fastlane/test_output
 *.env
 Secrets.xcconfig
 APIKey.txt
+
+# ─── Xcode build logs ───
+build.log
+*.log
+
+# ─── Web 子项目 (web/.gitignore 已含 node_modules / dist，这里加一层防御) ───
+web/node_modules/
+web/dist/

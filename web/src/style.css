@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/* Tailwind 4 CSS-first 主题。色板用 LifeManga iOS 端的 AccentColor 风格。 */
+@theme {
+  --color-ink-50: #f6f5fa;
+  --color-ink-100: #ebe9f1;
+  --color-ink-300: #b9b5c4;
+  --color-ink-500: #6b6375;
+  --color-ink-700: #3a3543;
+  --color-ink-900: #08060d;
+  --color-accent-500: #aa3bff;
+  --color-accent-50: #faf2ff;
+
+  --font-sans: system-ui, -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+}
+
+html,
+body,
+#app {
+  min-height: 100vh;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light dark;
+}

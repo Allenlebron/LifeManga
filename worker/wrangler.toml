@@ -1,0 +1,33 @@
+# Cloudflare Worker 配置 (lifemanga-worker)
+#
+# 说明:
+# - main 指向 src/index.ts (TypeScript Worker)
+# - 没有用 R2 / KV / Queues (Weekend 3 决定全走 DO storage 简化部署门槛)
+# - DO 用新版 SQLite-backed 存储 (new_sqlite_classes), 不是旧版 KV-backed
+# - compatibility_date 锁到 2026-05-26, 让行为稳定
+# - observability 默认开 (Cloudflare 后台能看到日志和 trace)
+
+name = "lifemanga-worker"
+main = "src/index.ts"
+compatibility_date = "2026-05-26"
+compatibility_flags = ["nodejs_compat"]
+
+# 默认环境变量。前端域名白名单, "*" 是开发期通配。
+# 生产建议改成具体域名: ALLOWED_ORIGIN = "https://lifemanga-web.pages.dev"
+[vars]
+ALLOWED_ORIGIN = "*"
+
+# Durable Object binding
+[[durable_objects.bindings]]
+name = "JOBS"
+class_name = "JobRunner"
+
+# DO migrations: 第一次部署时声明 JobRunner 是个新的 SQLite-backed class
+# (SQLite 是 Cloudflare 推荐的当前默认; KV-backed DO 已经被标记为 legacy)
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["JobRunner"]
+
+# 启用日志/可观测性 (Cloudflare 后台能看到)
+[observability]
+enabled = true

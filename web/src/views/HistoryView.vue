@@ -202,8 +202,33 @@ function downloadCurrent() {
                 {{ getMangaStyle(activeItem.style)?.displayName ?? activeItem.style }}
               </span>
               <span class="text-[11px] text-ink-300">{{ formatTime(activeItem.createdAt) }}</span>
+              <span v-if="activeItem.storyScript"
+                class="rounded-full bg-pink-500/20 px-2 py-0.5 text-[11px] font-medium text-pink-300">
+                📖 故事
+              </span>
             </div>
             <p v-if="activeItem.userPrompt" class="mb-3 text-sm text-ink-100">{{ activeItem.userPrompt }}</p>
+
+            <!-- 剧本展示 (故事模式生成的才有) -->
+            <details v-if="activeItem.storyScript" class="mb-3 rounded-lg border border-white/10 bg-ink-800/50">
+              <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-ink-100">
+                剧本: {{ activeItem.storyScript.title }} <span class="text-ink-300 font-normal">({{ activeItem.storyScript.panels.length }} 格)</span>
+              </summary>
+              <div class="space-y-2 px-3 pb-3">
+                <p class="text-[11px] italic text-ink-300">{{ activeItem.storyScript.synopsis }}</p>
+                <ol class="space-y-1.5">
+                  <li v-for="(p, i) in activeItem.storyScript.panels" :key="i"
+                    class="rounded border border-white/5 bg-ink-900/60 px-2 py-1.5">
+                    <div class="text-[10px] font-medium text-accent-300">分镜 {{ i + 1 }}</div>
+                    <div class="mt-0.5 text-[11px] text-ink-200">{{ p.description }}</div>
+                    <div v-if="p.dialogue" class="mt-0.5 text-[11px] text-ink-100">💬 {{ p.dialogue }}<span v-if="p.dialogueJa" class="ml-1 text-ink-400">「{{ p.dialogueJa }}」</span></div>
+                    <div v-if="p.narration" class="mt-0.5 text-[11px] text-ink-100">📝 {{ p.narration }}<span v-if="p.narrationJa" class="ml-1 text-ink-400">「{{ p.narrationJa }}」</span></div>
+                    <div v-if="p.sfx" class="mt-0.5 text-[11px] text-ink-100">💥 {{ p.sfx }}</div>
+                  </li>
+                </ol>
+              </div>
+            </details>
+
             <div class="flex gap-2">
               <button type="button" @click="downloadCurrent"
                 class="flex-1 rounded-xl border border-white/10 bg-ink-800/60 px-3 py-2 text-xs font-medium text-ink-50 transition hover:border-accent-500/40">

@@ -92,6 +92,9 @@ const script = ref<MangaStoryScript | null>(null)
 const charPickerOpen = ref(false)
 const charPickerItems = ref<CharPickerItem[]>([])
 const charPickerLoading = ref(false)
+const pickerStage = ref<'list' | 'views'>('list')
+const pickerActiveChar = ref<CharPickerItem | null>(null)
+const pickerViewUrls = ref<(string | null)[]>([])
 
 // 状态机
 const phase = ref<
@@ -194,6 +197,9 @@ function toggleStoryMode() {
 async function openCharPicker() {
   charPickerOpen.value = true
   charPickerLoading.value = true
+  pickerStage.value = 'list'
+  pickerActiveChar.value = null
+  pickerViewUrls.value = []
   document.body.style.overflow = 'hidden'
   try {
     const chars = await listCharacters()
@@ -217,26 +223,78 @@ function closeCharPicker() {
     if (it.thumbUrl) URL.revokeObjectURL(it.thumbUrl)
   }
   charPickerItems.value = []
+  // 二级 view 缩略图也释放
+  for (const u of pickerViewUrls.value) {
+    if (u) URL.revokeObjectURL(u)
+  }
+  pickerViewUrls.value = []
+  pickerStage.value = 'list'
+  pickerActiveChar.value = null
   charPickerOpen.value = false
   document.body.style.overflow = ''
 }
 
-async function loadCharacter(item: CharPickerItem) {
-  const view = item.char.views[0]
+/**
+ * 点 char 卡的入口:
+ * - char.views.length === 1 → 直接加载 view 0
+ * - char.views.length > 1 → 进二级, 加载所有 view 缩略图, 让用户选
+ */
+async function pickCharacter(item: CharPickerItem) {
+  if (previews.value.length >= 5) return
+  if (previews.value.some((p) => p.charSource?.charId === item.char.id)) return
+
+  if (item.char.views.length <= 1) {
+    await loadCharacterView(item, 0)
+    return
+  }
+
+  // 二级: 加载该角色全部 view 的缩略图
+  pickerActiveChar.value = item
+  pickerStage.value = 'views'
+  // 释放上一次的 view urls (理论上空)
+  for (const u of pickerViewUrls.value) {
+    if (u) URL.revokeObjectURL(u)
+  }
+  pickerViewUrls.value = []
+
+  charPickerLoading.value = true
+  try {
+    const urls = await Promise.all(
+      item.char.views.map(async (v) => {
+        const blob = await loadImageBlob(v.imageName)
+        return blob ? URL.createObjectURL(blob) : null
+      }),
+    )
+    pickerViewUrls.value = urls
+  } finally {
+    charPickerLoading.value = false
+  }
+}
+
+function backToList() {
+  for (const u of pickerViewUrls.value) {
+    if (u) URL.revokeObjectURL(u)
+  }
+  pickerViewUrls.value = []
+  pickerActiveChar.value = null
+  pickerStage.value = 'list'
+}
+
+/** 真正落到 previews 的入口。viewIdx 是该 char.views 数组下标。 */
+async function loadCharacterView(item: CharPickerItem, viewIdx: number) {
+  const view = item.char.views[viewIdx]
   if (!view) return
   if (previews.value.length >= 5) {
     closeCharPicker()
     return
   }
-  // 防重复加载同一角色
   if (previews.value.some((p) => p.charSource?.charId === item.char.id)) {
     closeCharPicker()
     return
   }
   const blob = await loadImageBlob(view.imageName)
   if (!blob) return
-  // 转成 File 让它走跟手动上传完全一样的 pipeline
-  const fileName = `char-${item.char.name}.png`
+  const fileName = `char-${item.char.name}-${view.label}.png`
   const file = new File([blob], fileName, { type: blob.type || 'image/png' })
   const url = URL.createObjectURL(blob)
   previews.value.push({
@@ -244,7 +302,6 @@ async function loadCharacter(item: CharPickerItem) {
     url,
     charSource: { charId: item.char.id, charName: item.char.name },
   })
-  // 加图后清掉之前的剧本 (保持跟正常上传行为一致)
   if (storyMode.value) script.value = null
   compressedCache = []
   closeCharPicker()
@@ -298,7 +355,26 @@ async function handleDraftScript() {
   if (!style) return
 
   const storyOpts = loadStoryOptions(provider)
-  const { system, user } = buildStoryPrompts(style, storyOpts.panelCount, userPrompt.value)
+
+  // 抽出 previews 里来自角色库的 character 信息, 喂给 AI 让它知道主角是谁
+  const charSourceIds = Array.from(
+    new Set(previews.value.map((p) => p.charSource?.charId).filter((x): x is string => !!x)),
+  )
+  let storyCharacters: { name: string; bio?: string }[] | undefined
+  if (charSourceIds.length > 0) {
+    const allChars = await listCharacters()
+    storyCharacters = charSourceIds
+      .map((id) => allChars.find((c) => c.id === id))
+      .filter((c): c is Character => !!c)
+      .map((c) => ({ name: c.name, bio: c.bio }))
+  }
+
+  const { system, user } = buildStoryPrompts(
+    style,
+    storyOpts.panelCount,
+    userPrompt.value,
+    storyCharacters,
+  )
   const providerBaseUrl = localStorage.getItem('lifemanga.provider_base_url')?.trim() || undefined
 
   phase.value = 'drafting'
@@ -781,45 +857,81 @@ function goHistory() { router.push('/history') }
       <div v-if="charPickerOpen" class="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md"
            @click.self="closeCharPicker">
         <header class="flex items-center justify-between p-3" style="padding-top: max(0.75rem, env(safe-area-inset-top))">
-          <button type="button" @click="closeCharPicker"
+          <button v-if="pickerStage === 'list'" type="button" @click="closeCharPicker"
             class="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-ink-50 backdrop-blur transition hover:bg-white/20">
             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
-          <div class="text-sm font-medium text-ink-50">载入角色</div>
+          <button v-else type="button" @click="backToList"
+            class="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-ink-50 backdrop-blur transition hover:bg-white/20">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div class="text-sm font-medium text-ink-50">
+            {{ pickerStage === 'list' ? '载入角色' : `${pickerActiveChar?.char.name} · 选视图` }}
+          </div>
           <div class="w-9" />
         </header>
 
         <div class="flex-1 overflow-y-auto px-4 pb-4">
-          <p class="mb-3 text-xs text-ink-300">
-            选一个角色作为参考图。会用它的第一张设定图。
-          </p>
+          <!-- 一级: 角色列表 -->
+          <template v-if="pickerStage === 'list'">
+            <p class="mb-3 text-xs text-ink-300">
+              选一个角色作为参考图。多视图角色会让你二级选择。
+            </p>
 
-          <div v-if="charPickerLoading" class="py-12 text-center text-sm text-ink-300">加载中…</div>
+            <div v-if="charPickerLoading" class="py-12 text-center text-sm text-ink-300">加载中…</div>
 
-          <div v-else-if="charPickerItems.length === 0"
-            class="rounded-2xl border border-dashed border-white/10 bg-ink-800/40 px-6 py-12 text-center">
-            <p class="text-sm text-ink-100">还没有角色</p>
-            <p class="mt-1 text-xs text-ink-300">先到「角色」tab 创建一个</p>
-          </div>
+            <div v-else-if="charPickerItems.length === 0"
+              class="rounded-2xl border border-dashed border-white/10 bg-ink-800/40 px-6 py-12 text-center">
+              <p class="text-sm text-ink-100">还没有角色</p>
+              <p class="mt-1 text-xs text-ink-300">先到「角色」tab 创建一个</p>
+            </div>
 
-          <ul v-else class="grid grid-cols-2 gap-2.5">
-            <li v-for="it in charPickerItems" :key="it.char.id">
-              <button type="button" @click="loadCharacter(it)"
-                class="block w-full overflow-hidden rounded-2xl border border-white/10 bg-ink-800/60 text-left backdrop-blur transition hover:border-accent-500 active:scale-[0.97]">
-                <div class="aspect-square w-full overflow-hidden bg-ink-700">
-                  <img v-if="it.thumbUrl" :src="it.thumbUrl" class="h-full w-full object-cover" />
-                </div>
-                <div class="px-3 py-2">
-                  <div class="text-sm font-medium text-ink-50">{{ it.char.name }}</div>
-                  <div class="mt-0.5 line-clamp-1 text-[11px] text-ink-300">
-                    {{ it.char.bio || `${it.char.views.length} 张图` }}
+            <ul v-else class="grid grid-cols-2 gap-2.5">
+              <li v-for="it in charPickerItems" :key="it.char.id">
+                <button type="button" @click="pickCharacter(it)"
+                  class="block w-full overflow-hidden rounded-2xl border border-white/10 bg-ink-800/60 text-left backdrop-blur transition hover:border-accent-500 active:scale-[0.97]">
+                  <div class="relative aspect-square w-full overflow-hidden bg-ink-700">
+                    <img v-if="it.thumbUrl" :src="it.thumbUrl" class="h-full w-full object-cover" />
+                    <span v-if="it.char.views.length > 1"
+                      class="absolute right-1.5 top-1.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white backdrop-blur">
+                      ×{{ it.char.views.length }}
+                    </span>
                   </div>
-                </div>
-              </button>
-            </li>
-          </ul>
+                  <div class="px-3 py-2">
+                    <div class="text-sm font-medium text-ink-50">{{ it.char.name }}</div>
+                    <div class="mt-0.5 line-clamp-1 text-[11px] text-ink-300">
+                      {{ it.char.bio || `${it.char.views.length} 张图` }}
+                    </div>
+                  </div>
+                </button>
+              </li>
+            </ul>
+          </template>
+
+          <!-- 二级: view 列表 -->
+          <template v-else-if="pickerActiveChar">
+            <p v-if="pickerActiveChar.char.bio" class="mb-3 rounded-lg bg-ink-800/40 px-3 py-2 text-xs text-ink-200">
+              {{ pickerActiveChar.char.bio }}
+            </p>
+            <p v-else class="mb-3 text-xs text-ink-300">点一张作为参考图。</p>
+
+            <div v-if="charPickerLoading" class="py-12 text-center text-sm text-ink-300">加载视图…</div>
+            <ul v-else class="grid grid-cols-2 gap-2.5">
+              <li v-for="(v, i) in pickerActiveChar.char.views" :key="v.id">
+                <button type="button" @click="loadCharacterView(pickerActiveChar, i)"
+                  class="block w-full overflow-hidden rounded-2xl border border-white/10 bg-ink-800/60 text-left backdrop-blur transition hover:border-accent-500 active:scale-[0.97]">
+                  <div class="aspect-square w-full overflow-hidden bg-ink-700">
+                    <img v-if="pickerViewUrls[i]" :src="pickerViewUrls[i]!" class="h-full w-full object-cover" />
+                  </div>
+                  <div class="px-3 py-2 text-[11px] text-ink-100 line-clamp-1">{{ v.label }}</div>
+                </button>
+              </li>
+            </ul>
+          </template>
         </div>
       </div>
     </Transition>

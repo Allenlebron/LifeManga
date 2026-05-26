@@ -282,11 +282,15 @@ export function buildRenderPrompt(
 
 /**
  * 给 chat 接口用的故事生成 system prompt 跟 user text。跟 iOS 端 generateScript 中的字符串对齐。
+ *
+ * @param characters 已载入的角色 (从角色库). 名字 + bio 会被注入 userText, 让 AI
+ *                   知道主角是谁、长什么样, 整个剧本会围绕他/她构建。可选。
  */
 export function buildStoryPrompts(
   style: MangaStyle,
   panelCount: number,
   userHint: string | undefined,
+  characters?: { name: string; bio?: string }[],
 ): { system: string; user: string } {
   const system = `You are a creative Japanese manga screenwriter. You receive a few real-life photos from the user. They may seem unrelated. Your job is to invent a short, compelling manga story that connects them in unexpected, emotionally resonant, or dramatic ways.
 Output STRICT JSON only — no markdown, no commentary.`
@@ -295,10 +299,23 @@ Output STRICT JSON only — no markdown, no commentary.`
     ? `User's story hint: "${userHint.trim()}"`
     : `User has no specific hint — feel free to invent.`
 
+  // 角色块 (可选): 让 AI 知道主角是谁、要保持外形一致
+  let characterBlock = ''
+  if (characters && characters.length > 0) {
+    const lines = characters.map((c, i) => {
+      const bio = c.bio?.trim() ? ` — ${c.bio.trim()}` : ''
+      return `${i + 1}. ${c.name}${bio}`
+    })
+    characterBlock = `\n\nEstablished characters (from user's character library):
+${lines.join('\n')}
+
+The story should center on these characters. Use their names directly in dialogue (Chinese), and keep their established traits (age, profession, personality) consistent throughout the panels. The image generator will receive their reference images, so visual consistency is handled — your job is to keep them in character.\n`
+  }
+
   const user = `Manga style: ${style.displayName} — ${style.subtitle}
 Style guide for tone: ${style.basePrompt}
 
-${hintLine}
+${hintLine}${characterBlock}
 
 Design a ${panelCount}-panel manga page. You are NOT required to use one panel per input photo — invent extra panels if useful: establishing shots, emotion close-ups, transition panels, dramatic splash panels, flashbacks, etc. Aim for a beginning, middle, and end.
 

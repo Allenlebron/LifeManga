@@ -104,3 +104,80 @@ export function loadStyleOptions(provider: ProviderId): JobStyleOptions {
 export function saveStyleOptions(opts: JobStyleOptions): void {
   localStorage.setItem(OPTIONS_KEY, JSON.stringify(opts))
 }
+
+// MARK: - 故事模式 settings
+
+import type { BubbleTextMode } from './MangaStyle'
+
+export interface StoryOptions {
+  /** 故事模式默认是否启用 (用户在 HomeView 还能临时切) */
+  enabled: boolean
+  /** 期望分镜格数, 2-9 */
+  panelCount: number
+  /** 视觉编剧模型. 不同 provider 默认值不同, 用户可在 Settings 里自己改 */
+  scriptModel: string
+  /** 气泡里写什么文字 */
+  bubbleTextMode: BubbleTextMode
+}
+
+export const DEFAULT_STORY_OPTIONS_BY_PROVIDER: Record<ProviderId, StoryOptions> = {
+  openai: {
+    enabled: false,
+    panelCount: 6,
+    scriptModel: 'gpt-4o-mini', // vision-capable, 比 gpt-5 便宜
+    bubbleTextMode: 'chinese',
+  },
+  siliconflow: {
+    enabled: false,
+    panelCount: 6,
+    scriptModel: 'Qwen/Qwen2.5-VL-72B-Instruct',
+    bubbleTextMode: 'chinese',
+  },
+  freemodel: {
+    enabled: false,
+    panelCount: 6,
+    scriptModel: 'Qwen/Qwen2.5-VL-72B-Instruct',
+    bubbleTextMode: 'chinese',
+  },
+}
+
+const STORY_KEY = 'lifemanga.story_options'
+
+export function loadStoryOptions(provider: ProviderId): StoryOptions {
+  const raw = localStorage.getItem(STORY_KEY)
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (
+        typeof parsed === 'object' &&
+        parsed &&
+        typeof parsed.enabled === 'boolean' &&
+        typeof parsed.panelCount === 'number' &&
+        typeof parsed.scriptModel === 'string' &&
+        typeof parsed.bubbleTextMode === 'string'
+      ) {
+        return {
+          enabled: parsed.enabled,
+          panelCount: Math.max(2, Math.min(9, parsed.panelCount)),
+          scriptModel: parsed.scriptModel,
+          bubbleTextMode: parsed.bubbleTextMode as BubbleTextMode,
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  return DEFAULT_STORY_OPTIONS_BY_PROVIDER[provider]
+}
+
+export function saveStoryOptions(opts: StoryOptions): void {
+  localStorage.setItem(STORY_KEY, JSON.stringify(opts))
+}
+
+export const BUBBLE_TEXT_MODES: { id: BubbleTextMode; label: string; hint: string }[] = [
+  { id: 'chinese', label: '中文', hint: '气泡里画中文台词（推荐）' },
+  { id: 'japanese', label: '日文假名', hint: '气泡里画日文假名，怀旧 manga 感' },
+  { id: 'english', label: '英文', hint: '气泡里画英文台词（最稳，海外漫画感）' },
+  { id: 'empty', label: '留空', hint: '气泡画出来但里面不写字' },
+  { id: 'none', label: '无对话框', hint: '完全不画对话框，纯视觉漫画' },
+]

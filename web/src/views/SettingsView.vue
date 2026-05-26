@@ -3,10 +3,14 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { db, imagesTotalBytes, listMangaItems, listProjects, seedFakeData } from '../services/db'
 import { getWorkerUrl, setWorkerUrl, type ProviderId } from '../services/api'
 import {
-  DEFAULT_OPTIONS_BY_PROVIDER, SIZE_OPTIONS_BY_PROVIDER,
-  loadApiKey, loadCurrentProvider, loadStyleOptions,
-  saveApiKey, saveCurrentProvider, saveStyleOptions,
+  BUBBLE_TEXT_MODES,
+  DEFAULT_OPTIONS_BY_PROVIDER,
+  DEFAULT_STORY_OPTIONS_BY_PROVIDER,
+  SIZE_OPTIONS_BY_PROVIDER,
+  loadApiKey, loadCurrentProvider, loadStoryOptions, loadStyleOptions,
+  saveApiKey, saveCurrentProvider, saveStoryOptions, saveStyleOptions,
   type JobStyleOptions,
+  type StoryOptions,
 } from '../models/JobOptions'
 
 const PROVIDERS: { id: ProviderId; label: string; hint: string }[] = [
@@ -20,6 +24,7 @@ const apiKey = ref('')
 const isKeyVisible = ref(false)
 const saved = ref(false)
 const styleOptions = ref<JobStyleOptions>({ ...DEFAULT_OPTIONS_BY_PROVIDER.siliconflow })
+const storyOptions = ref<StoryOptions>({ ...DEFAULT_STORY_OPTIONS_BY_PROVIDER.siliconflow })
 const showAdvanced = ref(false)
 const workerUrlInput = ref('')
 const providerBaseUrlInput = ref('')
@@ -47,6 +52,7 @@ onMounted(() => {
   provider.value = loadCurrentProvider()
   apiKey.value = loadApiKey(provider.value)
   styleOptions.value = loadStyleOptions(provider.value)
+  storyOptions.value = loadStoryOptions(provider.value)
   workerUrlInput.value = localStorage.getItem('lifemanga.worker_url') ?? ''
   providerBaseUrlInput.value = localStorage.getItem('lifemanga.provider_base_url') ?? ''
   refreshStats()
@@ -61,9 +67,12 @@ watch(provider, (newP) => {
   } else {
     styleOptions.value.model = DEFAULT_OPTIONS_BY_PROVIDER[newP].model
   }
+  // story scriptModel 也跟着 provider 走
+  storyOptions.value.scriptModel = DEFAULT_STORY_OPTIONS_BY_PROVIDER[newP].scriptModel
 })
 
 watch(styleOptions, (v) => saveStyleOptions(v), { deep: true })
+watch(storyOptions, (v) => saveStoryOptions(v), { deep: true })
 
 function saveKey() {
   saveApiKey(provider.value, apiKey.value)
@@ -179,6 +188,44 @@ async function handleClear() {
             <option value="low">low</option>
             <option value="medium">medium (推荐)</option>
             <option value="high">high (谨慎: 单图可能 &gt; 2MB)</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- 故事模式参数 -->
+    <section class="mb-6">
+      <h2 class="mb-2 text-sm font-medium text-ink-100">故事模式</h2>
+      <p class="mb-3 text-xs text-ink-300">
+        AI 看你的照片自动写多格剧本 (你可以编辑后再画)。
+      </p>
+      <div class="space-y-3 rounded-xl border border-white/10 bg-ink-800/60 p-4 backdrop-blur">
+        <label class="flex items-center justify-between">
+          <span class="text-xs text-ink-100">默认开启</span>
+          <input type="checkbox" v-model="storyOptions.enabled"
+            class="h-5 w-5 rounded accent-accent-500" />
+        </label>
+        <div>
+          <label class="text-xs text-ink-300">分镜格数</label>
+          <input v-model.number="storyOptions.panelCount" type="number" min="2" max="9"
+            class="mt-1 w-full rounded-lg border border-white/10 bg-ink-900/70 px-3 py-2 text-sm text-ink-50 focus:border-accent-500/60 focus:outline-none" />
+          <p class="mt-1 text-[10px] text-ink-300">2~9 格, 越多越费 token</p>
+        </div>
+        <div>
+          <label class="text-xs text-ink-300">编剧模型 (vision-capable)</label>
+          <input v-model="storyOptions.scriptModel" type="text"
+            class="mt-1 w-full rounded-lg border border-white/10 bg-ink-900/70 px-3 py-2 font-mono text-xs text-ink-50 focus:border-accent-500/60 focus:outline-none" />
+          <p class="mt-1 text-[10px] text-ink-300">
+            OpenAI 推荐 gpt-4o-mini · SF 推荐 Qwen/Qwen2.5-VL-72B-Instruct
+          </p>
+        </div>
+        <div>
+          <label class="text-xs text-ink-300">气泡文字模式</label>
+          <select v-model="storyOptions.bubbleTextMode"
+            class="mt-1 w-full rounded-lg border border-white/10 bg-ink-900/70 px-3 py-2 text-sm text-ink-50 focus:border-accent-500/60 focus:outline-none">
+            <option v-for="m in BUBBLE_TEXT_MODES" :key="m.id" :value="m.id">
+              {{ m.label }} — {{ m.hint }}
+            </option>
           </select>
         </div>
       </div>

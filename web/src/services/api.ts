@@ -169,6 +169,71 @@ export async function pollJobUntilDone(
   }
 }
 
+/** 提交故事编剧请求, 拿到 MangaStoryScript JSON。 */
+export interface SubmitStoryInput {
+  apiKey: string
+  provider: ProviderId
+  workerUrl?: string
+  providerBaseUrl?: string
+  /** Vision 模型, 比如 gpt-4o-mini / Qwen/Qwen2.5-VL-72B-Instruct */
+  scriptModel: string
+  systemPrompt: string
+  userText: string
+  images: File[]
+}
+
+export interface StoryScriptResponse {
+  script?: {
+    title: string
+    synopsis: string
+    panels: Array<{
+      description: string
+      dialogue?: string | null
+      dialogueJa?: string | null
+      narration?: string | null
+      narrationJa?: string | null
+      sfx?: string | null
+    }>
+  }
+  error?: string
+  errorCategory?: ErrorCategory
+  rawContent?: string
+}
+
+export async function submitStoryScript(input: SubmitStoryInput): Promise<StoryScriptResponse> {
+  const base = (input.workerUrl || getWorkerUrl()).replace(/\/$/, '')
+
+  const form = new FormData()
+  form.append('provider', input.provider)
+  form.append('scriptModel', input.scriptModel)
+  form.append('systemPrompt', input.systemPrompt)
+  form.append('userText', input.userText)
+  if (input.providerBaseUrl) {
+    form.append('baseUrl', input.providerBaseUrl)
+  }
+  for (const file of input.images) {
+    form.append('image[]', file, file.name || 'input.jpg')
+  }
+
+  const res = await fetch(`${base}/story`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${input.apiKey}` },
+    body: form,
+  })
+
+  const text = await res.text()
+  let body: StoryScriptResponse = {}
+  try {
+    body = JSON.parse(text)
+  } catch {
+    /* not JSON */
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, body.error ?? `HTTP ${res.status}: ${text.slice(0, 200)}`)
+  }
+  return body
+}
+
 /** 把 SettingsView 里保存的 provider 选项 + 用户输入合并出 SubmitJobInput。 */
 export function buildSubmitInput(opts: {
   apiKey: string

@@ -141,3 +141,187 @@ Pure black-and-white manga ink art. No colors. Solid blacks for shadow shapes, s
 STYLE GUIDE:
 ${style.basePrompt}${cleanRule}`
 }
+
+// MARK: - 故事模式 render prompt (从 iOS 端 buildRenderPrompt 1:1 翻)
+
+import type { MangaStoryScript } from './MangaItem'
+
+/** 气泡文字模式: 5 种, 跟 iOS AppSettings.bubbleTextModes 对齐 */
+export type BubbleTextMode = 'chinese' | 'japanese' | 'english' | 'empty' | 'none'
+
+function clean(s: string | undefined | null): string | null {
+  if (!s) return null
+  const t = s.trim()
+  if (!t || t.toLowerCase() === 'null') return null
+  return t
+}
+
+/**
+ * 把 (style, script, bubbleMode, isColor) 拼成给 image API 的完整 prompt。
+ * 跟 iOS 端 buildRenderPrompt() 行为对齐。
+ */
+export function buildRenderPrompt(
+  style: MangaStyle,
+  script: MangaStoryScript,
+  bubbleMode: BubbleTextMode,
+  isColor: boolean,
+): string {
+  const lines: string[] = []
+  lines.push('Create a SINGLE full Japanese manga page in this style:')
+  lines.push(effectivePrompt(style, isColor))
+  lines.push('')
+  lines.push(
+    `Layout: arrange ${script.panels.length} panels in a classic manga grid with clear ${
+      isColor ? '' : 'black '
+    }gutters between panels. Vary panel sizes for dramatic effect (e.g., one larger splash panel). Use the provided reference photos to keep characters and locations visually consistent.`,
+  )
+  lines.push('')
+
+  // 标题文字策略
+  switch (bubbleMode) {
+    case 'none':
+    case 'empty':
+      lines.push(
+        `MANGA TITLE (for your understanding only, do NOT render any title text on the page): ${script.title}`,
+      )
+      break
+    case 'chinese':
+      lines.push(
+        `MANGA TITLE (render this Chinese title large at the top in stylized brush calligraphy): ${script.title}`,
+      )
+      break
+    case 'english':
+      lines.push(
+        `MANGA TITLE (render an English version of this title large at the top in stylized lettering — translate the Chinese title naturally): ${script.title}`,
+      )
+      break
+    default:
+      lines.push(
+        `MANGA TITLE (for your understanding only, do NOT render any title text on the page): ${script.title}`,
+      )
+  }
+  lines.push(`SYNOPSIS (for your understanding only, do not render): ${script.synopsis}`)
+  lines.push('')
+  lines.push('PANELS (read top-to-bottom):')
+
+  script.panels.forEach((p, i) => {
+    lines.push('')
+    lines.push(`Panel ${i + 1}:`)
+    lines.push(`  Visual: ${p.description}`)
+
+    const zhDialogue = clean(p.dialogue)
+    const jaDialogue = clean(p.dialogueJa)
+    const zhNarration = clean(p.narration)
+    const jaNarration = clean(p.narrationJa)
+    const sfx = clean(p.sfx)
+
+    switch (bubbleMode) {
+      case 'none':
+        break
+      case 'empty':
+        if (zhDialogue) {
+          lines.push(
+            '  Draw a clean empty speech bubble (oval with tail pointing to the speaker). Leave it COMPLETELY EMPTY — do NOT put any text inside.',
+          )
+        }
+        if (zhNarration) {
+          lines.push(
+            '  Draw a clean empty rectangular caption box at the top/corner of the panel. Leave it COMPLETELY EMPTY.',
+          )
+        }
+        break
+      case 'chinese':
+        if (zhDialogue) {
+          lines.push(
+            `  Speech bubble — render this Chinese text VERBATIM, large and clearly readable: 「${zhDialogue}」`,
+          )
+        }
+        if (zhNarration) {
+          lines.push(`  Narration caption box — render this Chinese text VERBATIM: 「${zhNarration}」`)
+        }
+        break
+      case 'english':
+        if (zhDialogue) {
+          lines.push(
+            `  Speech bubble — render a natural English translation of this Chinese line, short and clearly readable (≤ 12 words): ${zhDialogue}`,
+          )
+        }
+        if (zhNarration) {
+          lines.push(
+            `  Narration caption box — render a natural English translation of this Chinese narration: ${zhNarration}`,
+          )
+        }
+        break
+      default: // japanese
+        if (jaDialogue) {
+          lines.push(
+            `  Speech bubble — render this Japanese kana text VERBATIM, large and clearly readable: 「${jaDialogue}」`,
+          )
+        } else if (zhDialogue) {
+          lines.push(
+            `  Speech bubble — render a natural short Japanese kana translation (≤ 8 kana) of this Chinese line: ${zhDialogue}`,
+          )
+        }
+        if (jaNarration) {
+          lines.push(`  Narration caption box — render this Japanese kana text VERBATIM: 「${jaNarration}」`)
+        } else if (zhNarration) {
+          lines.push(
+            `  Narration caption box — render a natural short Japanese translation of this Chinese line: ${zhNarration}`,
+          )
+        }
+    }
+    if (sfx) {
+      lines.push(
+        `  Stylized sound effect lettering integrated into the art (use Japanese katakana exactly as written, large and dramatic): ${sfx}`,
+      )
+    }
+  })
+
+  return lines.join('\n')
+}
+
+/**
+ * 给 chat 接口用的故事生成 system prompt 跟 user text。跟 iOS 端 generateScript 中的字符串对齐。
+ */
+export function buildStoryPrompts(
+  style: MangaStyle,
+  panelCount: number,
+  userHint: string | undefined,
+): { system: string; user: string } {
+  const system = `You are a creative Japanese manga screenwriter. You receive a few real-life photos from the user. They may seem unrelated. Your job is to invent a short, compelling manga story that connects them in unexpected, emotionally resonant, or dramatic ways.
+Output STRICT JSON only — no markdown, no commentary.`
+
+  const hintLine = userHint?.trim()
+    ? `User's story hint: "${userHint.trim()}"`
+    : `User has no specific hint — feel free to invent.`
+
+  const user = `Manga style: ${style.displayName} — ${style.subtitle}
+Style guide for tone: ${style.basePrompt}
+
+${hintLine}
+
+Design a ${panelCount}-panel manga page. You are NOT required to use one panel per input photo — invent extra panels if useful: establishing shots, emotion close-ups, transition panels, dramatic splash panels, flashbacks, etc. Aim for a beginning, middle, and end.
+
+For each piece of dialogue/narration, ALWAYS provide BOTH a Simplified Chinese version (for the user to read) AND a short Japanese-kana version (used to render inside speech bubbles, because the image model handles kana more reliably than Chinese). Keep the Japanese version short (≤ 8 kana per bubble), naturally translated, like real shonen manga dialogue.
+
+Return ONLY this JSON object (no extra text, no markdown):
+{
+  "title":    "<2~6字 中文标题>",
+  "synopsis": "<一两句中文剧情简介>",
+  "panels": [
+    {
+      "description":  "<English visual description: camera angle, action, mood>",
+      "dialogue":     "<角色名：中文台词                   // null if none>",
+      "dialogueJa":   "<corresponding short Japanese kana, e.g. 「行くぞ！」  // null if none>",
+      "narration":    "<中文旁白                           // null if none>",
+      "narrationJa":  "<short Japanese-kana narration      // null if none>",
+      "sfx":          "<拟声词 e.g. ドン! バン! ガタン!     // null if none>"
+    }
+    // ...共 ${panelCount} 个 panel
+  ]
+}
+
+IMPORTANT: every panel MUST exist; use null (not empty string) when there is no dialogue/narration/sfx. Do not output anything except the JSON.`
+
+  return { system, user }
+}

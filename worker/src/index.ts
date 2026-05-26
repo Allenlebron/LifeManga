@@ -15,6 +15,9 @@
 import { JobRunner } from './do'
 import type { Env, JobInput, Provider } from './types'
 import { bytesToBase64 } from './providers'
+import { callChatCompletion } from './providers/chat'
+import { PROVIDER_DEFAULT_BASE_URL, ProviderError } from './providers/shared'
+import { categorizeProviderError } from './errorCategory'
 
 // Cloudflare 要求 DO class 从入口文件导出，wrangler.toml 才能找到。
 export { JobRunner }
@@ -42,6 +45,11 @@ export default {
       // POST /jobs
       if (path === '/jobs' && request.method === 'POST') {
         return withCors(await handleSubmitJob(request, env), allowedOrigin)
+      }
+
+      // POST /story
+      if (path === '/story' && request.method === 'POST') {
+        return withCors(await handleSubmitStory(request), allowedOrigin)
       }
 
       // GET /jobs/:id  or  GET /jobs/:id/output/:idx
@@ -174,6 +182,107 @@ async function handleSubmitJob(request: Request, env: Env): Promise<Response> {
     status: startRes.status,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+/** POST /story: 同步调 chat completion 拿剧本 JSON, 直接返回给前端。 */
+async function handleSubmitStory(request: Request): Promise<Response> {
+  const auth = request.headers.get('Authorization') ?? ''
+  const apiKey = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : ''
+  if (!apiKey) {
+    return json({ error: 'Missing Authorization header. Expected: Authorization: Bearer <api-key>' }, 401)
+  }
+
+  const ct = request.headers.get('Content-Type') ?? ''
+  if (!ct.includes('multipart/form-data')) {
+    return json({ error: 'Expected multipart/form-data body' }, 400)
+  }
+
+  let form: FormData
+  try {
+    form = await request.formData()
+  } catch (e) {
+    return json({ error: `Failed to parse multipart body: ${(e as Error).message}` }, 400)
+  }
+
+  const providerRaw = String(form.get('provider') ?? 'siliconflow').toLowerCase()
+  const validProviders: Provider[] = ['openai', 'siliconflow', 'freemodel']
+  if (!validProviders.includes(providerRaw as Provider)) {
+    return json({ error: `Invalid provider: ${providerRaw}` }, 400)
+  }
+  const provider = providerRaw as Provider
+  const baseUrl =
+    String(form.get('baseUrl') ?? '').trim() || PROVIDER_DEFAULT_BASE_URL[provider]
+
+  // 必填: scriptModel, systemPrompt, userText
+  const scriptModel = String(form.get('scriptModel') ?? '').trim()
+  const systemPrompt = String(form.get('systemPrompt') ?? '').trim()
+  const userText = String(form.get('userText') ?? '').trim()
+  if (!scriptModel || !systemPrompt || !userText) {
+    return json(
+      { error: 'Missing required fields: scriptModel, systemPrompt, userText' },
+      400,
+    )
+  }
+
+  // 抽图 (复用跟 /jobs 一样的逻辑)
+  const rawValues = form.getAll('image[]') as unknown as Array<File | string>
+  const files = rawValues.filter(
+    (v): v is File => typeof v === 'object' && v !== null && 'arrayBuffer' in v,
+  )
+  if (files.length === 0) {
+    return json({ error: 'Missing image[] field. Send 1-5 reference images' }, 400)
+  }
+  if (files.length > 10) {
+    return json({ error: 'Too many images (max 10)' }, 400)
+  }
+
+  const images: { mime: string; base64: string }[] = []
+  for (const f of files) {
+    const buf = new Uint8Array(await f.arrayBuffer())
+    images.push({ mime: f.type || 'image/jpeg', base64: bytesToBase64(buf) })
+  }
+
+  // 调 chat completion
+  let rawJson: string
+  try {
+    rawJson = await callChatCompletion({
+      baseUrl,
+      apiKey,
+      model: scriptModel,
+      systemPrompt,
+      userText,
+      images,
+      maxCompletionTokens: 4000,
+      jsonMode: true,
+    })
+  } catch (err) {
+    if (err instanceof ProviderError) {
+      return json(
+        {
+          error: `Provider ${err.status}: ${err.message}${err.code ? ` (${err.code})` : ''}`,
+          errorCategory: categorizeProviderError(err),
+        },
+        err.status >= 400 && err.status < 600 ? err.status : 502,
+      )
+    }
+    return json({ error: (err as Error).message ?? 'unknown' }, 500)
+  }
+
+  // 尝试 parse JSON, 失败也回传 raw 让前端显示给用户
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawJson)
+  } catch {
+    return json(
+      {
+        error: 'Model returned non-JSON content',
+        rawContent: rawJson.slice(0, 4000),
+      },
+      502,
+    )
+  }
+
+  return json({ script: parsed })
 }
 
 /** GET /jobs/:id 或 GET /jobs/:id/output/:idx 都走这里。 */

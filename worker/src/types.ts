@@ -63,6 +63,16 @@ export interface JobState {
   finishedAt?: number
   /** 失败时填，描述错误。 */
   error?: string
+  /** 失败时分类 (auth/quota/safety/...), 让前端做差异化 UX */
+  errorCategory?:
+    | 'auth'
+    | 'org_verify'
+    | 'quota'
+    | 'safety'
+    | 'server'
+    | 'gateway'
+    | 'timeout'
+    | 'unknown'
   /** 成功时填，输出图片张数。具体 base64 通过 GET /jobs/:id/output/:idx 拿。 */
   outputCount?: number
   /** 输出图的 mime type, 一般是 image/png */
@@ -80,6 +90,7 @@ export interface JobStatusResponse {
   startedAt?: number
   finishedAt?: number
   error?: string
+  errorCategory?: JobState['errorCategory']
   outputCount?: number
   outputMime?: string
   /** 用户体验用：当前已经等了多少秒 (server 端算好) */
@@ -97,6 +108,7 @@ export function toStatusResponse(state: JobState): JobStatusResponse {
     startedAt: state.startedAt,
     finishedAt: state.finishedAt,
     error: state.error,
+    errorCategory: state.errorCategory,
     outputCount: state.outputCount,
     outputMime: state.outputMime,
     elapsedSeconds:

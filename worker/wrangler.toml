@@ -12,10 +12,10 @@ main = "src/index.ts"
 compatibility_date = "2026-05-26"
 compatibility_flags = ["nodejs_compat"]
 
-# 默认环境变量。前端域名白名单, "*" 是开发期通配。
-# 生产建议改成具体域名: ALLOWED_ORIGIN = "https://lifemanga-web.pages.dev"
+# 默认环境变量。前端域名白名单, 逗号分隔可以多个。
+# 生产: 钉到 Pages 域名 + 本地开发的 vite dev server
 [vars]
-ALLOWED_ORIGIN = "*"
+ALLOWED_ORIGIN = "https://lifemanga-web.pages.dev,http://localhost:5173"
 
 # Durable Object binding
 [[durable_objects.bindings]]

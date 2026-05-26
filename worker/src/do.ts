@@ -15,10 +15,13 @@
 import { callProvider, ProviderError } from './providers'
 import type { Env, JobInput, JobState } from './types'
 import { toStatusResponse } from './types'
+import { categorizeProviderError } from './errorCategory'
 
 const STATE_KEY = 'state'
 /** 一张输出图分片存。每片 ≤ 1.5MB binary，远在 SQLite 单 cell 2MB 限制内。 */
 const CHUNK_SIZE = 1_500_000
+/** 任务终态后多久自动清理 DO storage。24 小时。 */
+const CLEANUP_AFTER_MS = 24 * 60 * 60 * 1000
 const OUTPUT_CHUNK_KEY = (imgIdx: number, chunkIdx: number) =>
   `output:${imgIdx}:${chunkIdx}`
 
@@ -131,37 +134,53 @@ export class JobRunner {
   }
 
   /**
-   * Cloudflare 触发的 alarm 回调。在 start 之后 100ms 跑。
-   * 跟 fetch handler 完全独立，不受客户端 HTTP 连接影响。
-   * 这是这个项目"长任务在边缘活下来"的核心机制。
+   * Cloudflare 触发的 alarm 回调。两种触发场景：
+   *
+   *  (1) start 之后 100ms 触发的"开工" alarm：
+   *      state.status === 'pending' → 进 running, 调 OpenAI, 完成转 done/failed
+   *      并排第二次 alarm (now + 24h) 用作 cleanup
+   *
+   *  (2) done/failed 之后 24h 触发的 cleanup alarm：
+   *      state.status === 'done' || 'failed' → deleteAll() 释放整个 DO storage
+   *
+   *  (3) 异常: state.status === 'running' 时被触发, 通常是 Cloudflare 滚部署
+   *      driving alarm 重入。如果距离 startedAt > 600s, 说明上一次 OpenAI 调用
+   *      早就该有结果了, 转 failed。否则放过 (上一次 alarm 还在跑, 让它跑完)。
    */
   async alarm(): Promise<void> {
     const s = await this.state.storage.get<JobState>(STATE_KEY)
-    if (!s) {
-      // alarm 触发但找不到 state，可能 storage 被清掉了，无能为力
-      return
-    }
-    if (s.status !== 'pending') {
-      // alarm 不重试。任何非 pending 状态都意味着已经处理过 / 处理中崩了。
-      // 如果是 running，说明上次 alarm 跑到一半 worker 重启 / 容器重排，
-      // 此时不再重试，转 failed 让用户看到错误。
-      if (s.status === 'running') {
-        s.status = 'failed'
-        s.error = 'Alarm reentry detected (likely instance restart). No auto-retry.'
-        s.finishedAt = Date.now()
-        await this.state.storage.put(STATE_KEY, s)
-      }
+    if (!s) return
+
+    // 场景 (2): 已经终态, 这是 cleanup alarm
+    if (s.status === 'done' || s.status === 'failed' || s.status === 'canceled') {
+      await this.state.storage.deleteAll()
       return
     }
 
-    // 进 running
+    // 场景 (3): running 状态被触发 alarm
+    if (s.status === 'running') {
+      const ageSec = (Date.now() - (s.startedAt ?? s.createdAt)) / 1000
+      if (ageSec > 600) {
+        // 10 分钟前就 startedAt 了还在 running, 说明 alarm 进程消失
+        s.status = 'failed'
+        s.error = `Stuck in running for ${Math.floor(ageSec)}s, killed.`
+        s.errorCategory = 'timeout'
+        s.finishedAt = Date.now()
+        s.input = { ...s.input, apiKey: '', inputImages: [] }
+        await this.state.storage.put(STATE_KEY, s)
+        await this.state.storage.setAlarm(Date.now() + CLEANUP_AFTER_MS)
+      }
+      // 否则放过, 上一轮 alarm 还在跑
+      return
+    }
+
+    // 场景 (1): 主流程, status === 'pending'
     s.status = 'running'
     s.startedAt = Date.now()
     await this.state.storage.put(STATE_KEY, s)
 
     try {
       const result = await callProvider(s.input)
-      // 把每张输出图分片存进 SQLite (单 cell 2MB 限制 → 1.5MB binary 分片)
       const chunkSizes: number[][] = []
       for (let i = 0; i < result.outputs.length; i++) {
         const bytes = decodeB64(result.outputs[i].base64)
@@ -178,27 +197,27 @@ export class JobRunner {
       s.outputMime = result.outputs[0]?.mime ?? 'image/png'
       s.outputChunkSizes = chunkSizes
       s.finishedAt = Date.now()
-      // 清掉 apiKey + 输入图 base64，节省 storage 空间，也减少长期保留 key 的暴露面
-      s.input = {
-        ...s.input,
-        apiKey: '',
-        inputImages: [],
-      }
+      s.input = { ...s.input, apiKey: '', inputImages: [] }
       await this.state.storage.put(STATE_KEY, s)
     } catch (err) {
       s.status = 'failed'
       if (err instanceof ProviderError) {
         s.error = `Provider ${err.status}: ${err.message}${err.code ? ` (${err.code})` : ''}`
+        s.errorCategory = categorizeProviderError(err)
       } else if (err instanceof Error) {
         s.error = err.message
+        s.errorCategory = 'unknown'
       } else {
         s.error = String(err)
+        s.errorCategory = 'unknown'
       }
       s.finishedAt = Date.now()
-      // 失败也清掉 apiKey
       s.input = { ...s.input, apiKey: '', inputImages: [] }
       await this.state.storage.put(STATE_KEY, s)
     }
+
+    // 不论成功/失败, 24h 后排 cleanup alarm
+    await this.state.storage.setAlarm(Date.now() + CLEANUP_AFTER_MS)
   }
 }
 

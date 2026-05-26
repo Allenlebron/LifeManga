@@ -16,6 +16,16 @@ export type JobStatus =
   | 'failed'
   | 'canceled'
 
+export type ErrorCategory =
+  | 'auth'
+  | 'org_verify'
+  | 'quota'
+  | 'safety'
+  | 'server'
+  | 'gateway'
+  | 'timeout'
+  | 'unknown'
+
 /** Worker 返回的 sanitized job 状态。 */
 export interface WorkerJobStatus {
   id: string
@@ -24,6 +34,7 @@ export interface WorkerJobStatus {
   startedAt?: number
   finishedAt?: number
   error?: string
+  errorCategory?: ErrorCategory
   outputCount?: number
   outputMime?: string
   elapsedSeconds?: number

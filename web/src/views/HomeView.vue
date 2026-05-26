@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import imageCompression from 'browser-image-compression'
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { effectivePrompt, getMangaStyle, MANGA_STYLES, type MangaStyleId } from '../models/MangaStyle'
 import { loadApiKey, loadCurrentProvider, loadStyleOptions } from '../models/JobOptions'
@@ -9,11 +9,46 @@ import {
   fetchJobOutput,
   pollJobUntilDone,
   submitJob,
+  type ErrorCategory,
   type WorkerJobStatus,
 } from '../services/api'
 import { ensureDefaultProject, saveMangaWithImages } from '../services/db'
+import { friendlyError } from '../utils/errorMessages'
 import type { MangaItem } from '../models/MangaItem'
 import StyleSwatch from '../components/StyleSwatch.vue'
+
+const ACTIVE_JOB_KEY = 'lifemanga.active_job'
+
+interface ActiveJobMarker {
+  jobId: string
+  styleId: MangaStyleId
+  userPrompt?: string
+  createdAt: number
+}
+
+function saveActiveJob(marker: ActiveJobMarker) {
+  localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify(marker))
+}
+
+function loadActiveJob(): ActiveJobMarker | null {
+  const raw = localStorage.getItem(ACTIVE_JOB_KEY)
+  if (!raw) return null
+  try {
+    const obj = JSON.parse(raw) as ActiveJobMarker
+    // 超过 1 小时前的 active job 视为过期, 不恢复
+    if (Date.now() - obj.createdAt > 60 * 60 * 1000) {
+      localStorage.removeItem(ACTIVE_JOB_KEY)
+      return null
+    }
+    return obj
+  } catch {
+    return null
+  }
+}
+
+function clearActiveJob() {
+  localStorage.removeItem(ACTIVE_JOB_KEY)
+}
 
 const router = useRouter()
 
@@ -31,8 +66,13 @@ const phase = ref<'idle' | 'compressing' | 'submitting' | 'pending' | 'running' 
   'idle',
 )
 const elapsedSec = ref(0)
+const errorCategory = ref<ErrorCategory | undefined>(undefined)
 const errorMessage = ref('')
 const resultUrls = ref<string[]>([])
+
+const friendly = computed(() =>
+  phase.value === 'failed' ? friendlyError(errorCategory.value, errorMessage.value) : null,
+)
 
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -81,13 +121,15 @@ function pickStyle(id: MangaStyleId) { selectedStyle.value = id }
 
 async function handleGenerate() {
   errorMessage.value = ''
+  errorCategory.value = undefined
   resultUrls.value.forEach((u) => URL.revokeObjectURL(u))
   resultUrls.value = []
 
   const provider = loadCurrentProvider()
   const apiKey = loadApiKey(provider)
   if (!apiKey) {
-    errorMessage.value = `请先去「设置」填写 ${provider} 的 API Key。`
+    errorMessage.value = `请先去「设置」填写 ${provider} 的 API Key`
+    errorCategory.value = 'auth'
     phase.value = 'failed'
     return
   }
@@ -110,6 +152,7 @@ async function handleGenerate() {
     )
   } catch (e) {
     errorMessage.value = `压缩失败: ${(e as Error).message}`
+    errorCategory.value = 'unknown'
     phase.value = 'failed'
     return
   }
@@ -126,10 +169,24 @@ async function handleGenerate() {
       quality: styleOpts.quality, n: styleOpts.n, images: compressedFiles,
     })
   } catch (e) {
-    errorMessage.value = e instanceof ApiError ? `提交失败 (${e.status}): ${e.message}` : `提交失败: ${(e as Error).message}`
+    if (e instanceof ApiError) {
+      errorMessage.value = `提交失败 (${e.status}): ${e.message}`
+      errorCategory.value = e.status === 401 ? 'auth' : e.status >= 500 ? 'server' : 'unknown'
+    } else {
+      errorMessage.value = `提交失败: ${(e as Error).message}`
+      errorCategory.value = 'unknown'
+    }
     phase.value = 'failed'
     return
   }
+
+  // 任务已经提交到 Worker, 持久化 jobId 让刷新后能接着拉
+  saveActiveJob({
+    jobId: job.id,
+    styleId: selectedStyle.value,
+    userPrompt: userPrompt.value.trim() || undefined,
+    createdAt: Date.now(),
+  })
 
   phase.value = 'pending'
 
@@ -148,18 +205,23 @@ async function handleGenerate() {
     })
   } catch (e) {
     errorMessage.value = `轮询失败: ${(e as Error).message}`
+    errorCategory.value = 'timeout'
     phase.value = 'failed'
     return
   }
 
   if (final.status === 'failed') {
     errorMessage.value = final.error ?? '未知错误'
+    errorCategory.value = final.errorCategory ?? 'unknown'
     phase.value = 'failed'
+    clearActiveJob()
     return
   }
   if (final.status !== 'done') {
     errorMessage.value = `任务状态异常: ${final.status}`
+    errorCategory.value = 'unknown'
     phase.value = 'failed'
+    clearActiveJob()
     return
   }
 
@@ -169,7 +231,9 @@ async function handleGenerate() {
     for (let i = 0; i < count; i++) blobs.push(await fetchJobOutput(job.id, i))
   } catch (e) {
     errorMessage.value = `下载结果失败: ${(e as Error).message}`
+    errorCategory.value = 'unknown'
     phase.value = 'failed'
+    clearActiveJob()
     return
   }
 
@@ -183,7 +247,86 @@ async function handleGenerate() {
 
   resultUrls.value = blobs.map((b) => URL.createObjectURL(b))
   phase.value = 'done'
+  clearActiveJob()
 }
+
+async function resumeActiveJob(marker: ActiveJobMarker) {
+  // 选风格回到 marker 里记录的, 让 UI 一致
+  selectedStyle.value = marker.styleId
+  if (marker.userPrompt) userPrompt.value = marker.userPrompt
+  phase.value = 'pending'
+
+  let final: WorkerJobStatus
+  try {
+    final = await pollJobUntilDone(marker.jobId, {
+      intervalMs: 4000, maxWaitSec: 360,
+      onTick: (s) => {
+        if (s.status === 'running') {
+          phase.value = 'running'
+          elapsedSec.value = s.elapsedSeconds ?? 0
+        } else if (s.status === 'pending') {
+          phase.value = 'pending'
+        }
+      },
+    })
+  } catch (e) {
+    errorMessage.value = `恢复轮询失败: ${(e as Error).message}`
+    errorCategory.value = 'timeout'
+    phase.value = 'failed'
+    clearActiveJob()
+    return
+  }
+
+  if (final.status === 'failed') {
+    errorMessage.value = final.error ?? '未知错误'
+    errorCategory.value = final.errorCategory ?? 'unknown'
+    phase.value = 'failed'
+    clearActiveJob()
+    return
+  }
+  if (final.status !== 'done') {
+    errorMessage.value = `任务状态异常: ${final.status}`
+    errorCategory.value = 'unknown'
+    phase.value = 'failed'
+    clearActiveJob()
+    return
+  }
+
+  const blobs: Blob[] = []
+  try {
+    const count = final.outputCount ?? 1
+    for (let i = 0; i < count; i++) blobs.push(await fetchJobOutput(marker.jobId, i))
+  } catch (e) {
+    errorMessage.value = `恢复下载失败: ${(e as Error).message}`
+    errorCategory.value = 'unknown'
+    phase.value = 'failed'
+    clearActiveJob()
+    return
+  }
+
+  const projectId = await ensureDefaultProject()
+  const baseManga: Omit<MangaItem, 'outputImageNames'> = {
+    id: crypto.randomUUID(),
+    projectId,
+    createdAt: Date.now(),
+    style: marker.styleId,
+    inputImageNames: [],
+    userPrompt: marker.userPrompt,
+    isFavorite: false,
+  }
+  await saveMangaWithImages(baseManga, blobs)
+  resultUrls.value = blobs.map((b) => URL.createObjectURL(b))
+  phase.value = 'done'
+  clearActiveJob()
+}
+
+onMounted(() => {
+  const marker = loadActiveJob()
+  if (marker) {
+    // 不 await, 让组件 mount 后异步恢复
+    resumeActiveJob(marker)
+  }
+})
 
 onUnmounted(() => {
   previews.value.forEach((p) => URL.revokeObjectURL(p.url))
@@ -298,8 +441,16 @@ function goHistory() { router.push('/history') }
         </span>
         {{ isWorking ? phaseLabel : '生成漫画' }}
       </button>
-      <p v-if="phase === 'failed'" class="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-        {{ errorMessage }}
+      <p v-if="phase === 'failed' && friendly" class="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-100">
+        <span class="block font-semibold text-red-200">{{ friendly.title }}</span>
+        <span class="mt-1 block text-red-100/90">{{ friendly.message }}</span>
+        <ul v-if="friendly.actions.length" class="mt-2 space-y-0.5 pl-3">
+          <li v-for="(a, i) in friendly.actions" :key="i" class="text-[11px] text-red-100/80 list-disc">{{ a }}</li>
+        </ul>
+        <details v-if="errorMessage" class="mt-2 text-[10px] text-red-100/60">
+          <summary class="cursor-pointer">原始错误</summary>
+          <code class="mt-1 block break-all font-mono">{{ errorMessage }}</code>
+        </details>
       </p>
     </section>
 

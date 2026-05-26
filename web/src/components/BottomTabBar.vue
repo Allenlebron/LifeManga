@@ -12,6 +12,8 @@ interface Tab {
 const tabs: Tab[] = [
   // 创作: 闪电 (动作 / 创意)
   { to: '/', label: '创作', iconPath: 'M13 2L4.5 12.5h6L9 22l8.5-10.5h-6z' },
+  // 角色: 人形头像
+  { to: '/characters', label: '角色', iconPath: 'M16 14a4 4 0 10-8 0M5 21v-2a4 4 0 014-4h6a4 4 0 014 4v2' },
   // 历史: 时钟
   { to: '/history', label: '历史', iconPath: 'M12 7v5l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
   // 设置: 齿轮 (简版 8 齿)

@@ -193,3 +193,78 @@ export async function imagesTotalBytes(): Promise<number> {
   const all = await db.images.toArray()
   return all.reduce((acc, x) => acc + x.byteSize, 0)
 }
+
+// MARK: - 角色库
+
+/**
+ * 创建一个新角色, 关联一张生成的设定/动作集图片。原子写入 characters + images。
+ * 返回完整的 Character 记录。
+ */
+export async function saveCharacterWithImage(
+  base: Omit<Character, 'views'>,
+  viewLabel: string,
+  blob: Blob,
+): Promise<Character> {
+  return await db.transaction('rw', db.characters, db.images, async () => {
+    const imageId = crypto.randomUUID()
+    await db.images.add({
+      id: imageId,
+      blob,
+      createdAt: Date.now(),
+      byteSize: blob.size,
+    })
+    const view = {
+      id: crypto.randomUUID(),
+      label: viewLabel,
+      imageName: imageId,
+      createdAt: Date.now(),
+    }
+    const char: Character = { ...base, views: [view] }
+    await db.characters.add(char)
+    return char
+  })
+}
+
+/** 给已有角色追加一张图。 */
+export async function appendCharacterView(
+  characterId: string,
+  viewLabel: string,
+  blob: Blob,
+): Promise<void> {
+  await db.transaction('rw', db.characters, db.images, async () => {
+    const c = await db.characters.get(characterId)
+    if (!c) throw new Error('Character not found')
+    const imageId = crypto.randomUUID()
+    await db.images.add({
+      id: imageId,
+      blob,
+      createdAt: Date.now(),
+      byteSize: blob.size,
+    })
+    c.views.push({
+      id: crypto.randomUUID(),
+      label: viewLabel,
+      imageName: imageId,
+      createdAt: Date.now(),
+    })
+    c.updatedAt = Date.now()
+    await db.characters.put(c)
+  })
+}
+
+/** 读所有角色, 按 updatedAt 倒序 */
+export async function listCharacters(): Promise<Character[]> {
+  return await db.characters.orderBy('updatedAt').reverse().toArray()
+}
+
+/** 删除角色 + 它所有的 view 图片 blob */
+export async function deleteCharacter(id: string): Promise<void> {
+  await db.transaction('rw', db.characters, db.images, async () => {
+    const c = await db.characters.get(id)
+    if (!c) return
+    for (const v of c.views) {
+      await db.images.delete(v.imageName)
+    }
+    await db.characters.delete(id)
+  })
+}

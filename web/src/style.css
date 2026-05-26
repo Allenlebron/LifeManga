@@ -1,15 +1,26 @@
 @import "tailwindcss";
 
-/* Tailwind 4 CSS-first 主题。色板用 LifeManga iOS 端的 AccentColor 风格。 */
+/* Tailwind 4 CSS-first 主题。暗色为默认 (匹配 iOS 端沉浸式氛围)。 */
 @theme {
-  --color-ink-50: #f6f5fa;
-  --color-ink-100: #ebe9f1;
-  --color-ink-300: #b9b5c4;
-  --color-ink-500: #6b6375;
-  --color-ink-700: #3a3543;
-  --color-ink-900: #08060d;
+  /* 文本色板 (深色背景下的层级) */
+  --color-ink-50:  #f5f3fa;   /* 主文本 (白) */
+  --color-ink-100: #d8d4e0;   /* 次级文本 */
+  --color-ink-300: #8a85a0;   /* 弱化文本 / placeholder */
+  --color-ink-500: #5a5570;   /* 边框 / disabled */
+  --color-ink-700: #2c2937;   /* 卡片次背景 */
+  --color-ink-800: #1a1822;   /* 卡片主背景 */
+  --color-ink-900: #0d0c14;   /* 全局背景 */
+
+  /* 主题色 */
+  --color-accent-50:  #f4e8ff;
+  --color-accent-300: #c98aff;
   --color-accent-500: #aa3bff;
-  --color-accent-50: #faf2ff;
+  --color-accent-700: #7b1ee0;
+
+  /* 反馈色 */
+  --color-danger:   #ff5c7a;
+  --color-warning:  #ffb547;
+  --color-success:  #5be09c;
 
   --font-sans: system-ui, -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
 }
@@ -24,5 +35,41 @@ body {
   margin: 0;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  color-scheme: light dark;
+  background: var(--color-ink-900);
+  color: var(--color-ink-50);
+  color-scheme: dark;
+}
+
+/* 自定义滚动条更克制 (Safari/Chrome) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink-700);
+  border-radius: 3px;
+}
+
+/* 让选中态在暗色背景上更清楚 */
+::selection {
+  background: var(--color-accent-700);
+  color: white;
+}
+
+/* spinner 动画用 */
+@keyframes pulse-ring {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.spinner-ring::before,
+.spinner-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid var(--color-accent-500);
+  animation: pulse-ring 1.6s ease-out infinite;
+}
+.spinner-ring::after {
+  animation-delay: 0.8s;
 }

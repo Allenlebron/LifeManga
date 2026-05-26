@@ -1,49 +1,62 @@
 <script setup lang="ts">
-// 底部 Tab 导航。三个图标 + 文字。
-//
-// 用 SVG 内联画图标，避免引第三方图标库。后续 Weekend 5 可以替换成更精致的图标。
+// 底部 Tab 导航。半透明 + 毛玻璃, iOS-Native 感。
+import { useRoute } from 'vue-router'
+const route = useRoute()
 
-const tabs = [
-  { to: '/', label: '创作', iconPath: 'M12 4v16m8-8H4' },
-  {
-    to: '/history',
-    label: '历史',
-    iconPath:
-      'M3 4h18M3 12h18M3 20h18M9 4v16M9 12h6M9 20h6M15 4v16',
-  },
-  {
-    to: '/settings',
-    label: '设置',
-    iconPath:
-      'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
-  },
+interface Tab {
+  to: string
+  label: string
+  iconPath: string
+}
+
+const tabs: Tab[] = [
+  // 创作: 闪电 (动作 / 创意)
+  { to: '/', label: '创作', iconPath: 'M13 2L4.5 12.5h6L9 22l8.5-10.5h-6z' },
+  // 历史: 时钟
+  { to: '/history', label: '历史', iconPath: 'M12 7v5l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
+  // 设置: 齿轮 (简版 8 齿)
+  { to: '/settings', label: '设置', iconPath: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V2a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z' },
 ]
+
+function isActive(to: string): boolean {
+  if (to === '/') return route.path === '/'
+  return route.path.startsWith(to)
+}
 </script>
 
 <template>
   <nav
-    class="fixed inset-x-0 bottom-0 z-50 border-t border-ink-100 bg-white/95 backdrop-blur"
+    class="fixed inset-x-0 bottom-0 z-50 border-t border-white/5 bg-ink-900/70 backdrop-blur-xl"
     style="padding-bottom: env(safe-area-inset-bottom)"
   >
     <ul class="mx-auto flex max-w-2xl">
       <li v-for="t in tabs" :key="t.to" class="flex-1">
         <RouterLink
           :to="t.to"
-          class="flex flex-col items-center gap-0.5 py-2 text-xs text-ink-500 transition hover:text-ink-900"
-          active-class="!text-accent-500"
-          exact-active-class="!text-accent-500"
+          class="group flex flex-col items-center gap-1 py-2.5 text-[11px] transition"
+          :class="[
+            isActive(t.to)
+              ? 'text-accent-300'
+              : 'text-ink-300 hover:text-ink-100',
+          ]"
         >
-          <svg
-            class="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+          <div
+            class="relative flex h-7 w-7 items-center justify-center rounded-full transition"
+            :class="[isActive(t.to) ? 'bg-accent-500/20' : '']"
           >
-            <path :d="t.iconPath" />
-          </svg>
+            <svg
+              class="h-5 w-5 transition"
+              :class="[isActive(t.to) ? 'scale-110' : 'group-hover:scale-105']"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path :d="t.iconPath" />
+            </svg>
+          </div>
           {{ t.label }}
         </RouterLink>
       </li>

@@ -25,9 +25,14 @@ import {
   type ErrorCategory,
   type WorkerJobStatus,
 } from '../services/api'
-import { ensureDefaultProject, saveMangaWithImages } from '../services/db'
+import {
+  ensureDefaultProject,
+  listCharacters,
+  loadImageBlob,
+  saveMangaWithImages,
+} from '../services/db'
 import { friendlyError } from '../utils/errorMessages'
-import type { MangaItem, MangaStoryScript } from '../models/MangaItem'
+import type { Character, MangaItem, MangaStoryScript } from '../models/MangaItem'
 import StyleSwatch from '../components/StyleSwatch.vue'
 
 const ACTIVE_JOB_KEY = 'lifemanga.active_job'
@@ -65,6 +70,13 @@ const router = useRouter()
 interface Preview {
   file: File
   url: string
+  /** 如果来自角色库, 标记来源, UI 显示 chip + 防止误删 */
+  charSource?: { charId: string; charName: string }
+}
+
+interface CharPickerItem {
+  char: Character
+  thumbUrl: string | null
 }
 
 const previews = ref<Preview[]>([])
@@ -75,6 +87,11 @@ const userPrompt = ref('')
 // 故事模式
 const storyMode = ref(false)
 const script = ref<MangaStoryScript | null>(null)
+
+// 角色 picker
+const charPickerOpen = ref(false)
+const charPickerItems = ref<CharPickerItem[]>([])
+const charPickerLoading = ref(false)
 
 // 状态机
 const phase = ref<
@@ -170,6 +187,67 @@ function toggleStoryMode() {
     errorCategory.value = undefined
     errorMessage.value = ''
   }
+}
+
+// MARK: - 角色 picker
+
+async function openCharPicker() {
+  charPickerOpen.value = true
+  charPickerLoading.value = true
+  document.body.style.overflow = 'hidden'
+  try {
+    const chars = await listCharacters()
+    const items: CharPickerItem[] = []
+    for (const c of chars) {
+      let thumbUrl: string | null = null
+      if (c.views.length > 0) {
+        const blob = await loadImageBlob(c.views[0].imageName)
+        if (blob) thumbUrl = URL.createObjectURL(blob)
+      }
+      items.push({ char: c, thumbUrl })
+    }
+    charPickerItems.value = items
+  } finally {
+    charPickerLoading.value = false
+  }
+}
+
+function closeCharPicker() {
+  for (const it of charPickerItems.value) {
+    if (it.thumbUrl) URL.revokeObjectURL(it.thumbUrl)
+  }
+  charPickerItems.value = []
+  charPickerOpen.value = false
+  document.body.style.overflow = ''
+}
+
+async function loadCharacter(item: CharPickerItem) {
+  const view = item.char.views[0]
+  if (!view) return
+  if (previews.value.length >= 5) {
+    closeCharPicker()
+    return
+  }
+  // 防重复加载同一角色
+  if (previews.value.some((p) => p.charSource?.charId === item.char.id)) {
+    closeCharPicker()
+    return
+  }
+  const blob = await loadImageBlob(view.imageName)
+  if (!blob) return
+  // 转成 File 让它走跟手动上传完全一样的 pipeline
+  const fileName = `char-${item.char.name}.png`
+  const file = new File([blob], fileName, { type: blob.type || 'image/png' })
+  const url = URL.createObjectURL(blob)
+  previews.value.push({
+    file,
+    url,
+    charSource: { charId: item.char.id, charName: item.char.name },
+  })
+  // 加图后清掉之前的剧本 (保持跟正常上传行为一致)
+  if (storyMode.value) script.value = null
+  compressedCache = []
+  closeCharPicker()
 }
 
 async function compressIfNeeded(): Promise<File[] | null> {
@@ -484,6 +562,16 @@ function goHistory() { router.push('/history') }
 
     <!-- 上传区 -->
     <section class="mb-5">
+      <div class="mb-2 flex items-center justify-between">
+        <h2 class="text-sm font-medium text-ink-100">参考图</h2>
+        <button type="button" @click="openCharPicker"
+          class="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-ink-800/60 px-3 py-1 text-[11px] text-ink-300 backdrop-blur transition hover:border-accent-500/40 hover:text-ink-100">
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M16 14a4 4 0 10-8 0M5 21v-2a4 4 0 014-4h6a4 4 0 014 4v2"/>
+          </svg>
+          载入角色
+        </button>
+      </div>
       <div v-if="previews.length === 0">
         <button type="button" @click="pickFiles"
           class="flex w-full flex-col items-center justify-center gap-2.5 rounded-2xl border border-white/10 bg-ink-800/60 px-6 py-9 text-ink-300 backdrop-blur-md transition hover:border-accent-500/40 hover:bg-ink-800/80">
@@ -507,6 +595,11 @@ function goHistory() { router.push('/history') }
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
+          <!-- 来自角色库的标记 -->
+          <div v-if="p.charSource"
+            class="absolute inset-x-0 bottom-0 bg-accent-500/80 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur">
+            👤 {{ p.charSource.charName }}
+          </div>
         </div>
         <button v-if="previews.length < 5" type="button" @click="pickFiles"
           class="flex aspect-square items-center justify-center rounded-xl border border-dashed border-white/15 bg-ink-800/40 text-ink-300 transition hover:border-accent-500/40 hover:bg-ink-800/80 hover:text-accent-300">
@@ -678,5 +771,57 @@ function goHistory() { router.push('/history') }
         </div>
       </div>
     </section>
+
+    <!-- 角色 picker modal -->
+    <Transition
+      enter-active-class="transition duration-200 ease-out"
+      enter-from-class="opacity-0" enter-to-class="opacity-100"
+      leave-active-class="transition duration-150 ease-in"
+      leave-from-class="opacity-100" leave-to-class="opacity-0">
+      <div v-if="charPickerOpen" class="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md"
+           @click.self="closeCharPicker">
+        <header class="flex items-center justify-between p-3" style="padding-top: max(0.75rem, env(safe-area-inset-top))">
+          <button type="button" @click="closeCharPicker"
+            class="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-ink-50 backdrop-blur transition hover:bg-white/20">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <div class="text-sm font-medium text-ink-50">载入角色</div>
+          <div class="w-9" />
+        </header>
+
+        <div class="flex-1 overflow-y-auto px-4 pb-4">
+          <p class="mb-3 text-xs text-ink-300">
+            选一个角色作为参考图。会用它的第一张设定图。
+          </p>
+
+          <div v-if="charPickerLoading" class="py-12 text-center text-sm text-ink-300">加载中…</div>
+
+          <div v-else-if="charPickerItems.length === 0"
+            class="rounded-2xl border border-dashed border-white/10 bg-ink-800/40 px-6 py-12 text-center">
+            <p class="text-sm text-ink-100">还没有角色</p>
+            <p class="mt-1 text-xs text-ink-300">先到「角色」tab 创建一个</p>
+          </div>
+
+          <ul v-else class="grid grid-cols-2 gap-2.5">
+            <li v-for="it in charPickerItems" :key="it.char.id">
+              <button type="button" @click="loadCharacter(it)"
+                class="block w-full overflow-hidden rounded-2xl border border-white/10 bg-ink-800/60 text-left backdrop-blur transition hover:border-accent-500 active:scale-[0.97]">
+                <div class="aspect-square w-full overflow-hidden bg-ink-700">
+                  <img v-if="it.thumbUrl" :src="it.thumbUrl" class="h-full w-full object-cover" />
+                </div>
+                <div class="px-3 py-2">
+                  <div class="text-sm font-medium text-ink-50">{{ it.char.name }}</div>
+                  <div class="mt-0.5 line-clamp-1 text-[11px] text-ink-300">
+                    {{ it.char.bio || `${it.char.views.length} 张图` }}
+                  </div>
+                </div>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </Transition>
   </main>
 </template>

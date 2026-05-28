@@ -88,7 +88,7 @@ interface CharPickerItem {
 const previews = ref<Preview[]>([])
 const charPreviews = ref<CharPreview[]>([])
 const selectedStyle = ref<MangaStyleId>('shonenJump')
-const isColor = ref(true)
+const isColor = ref(false)
 const userPrompt = ref('')
 
 // 故事模式

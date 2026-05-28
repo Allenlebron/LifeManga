@@ -26,13 +26,13 @@ export const DEFAULT_OPTIONS_BY_PROVIDER: Record<ProviderId, JobStyleOptions> = 
   },
   siliconflow: {
     model: 'Qwen/Qwen-Image-Edit',
-    size: '1024x1024',
+    size: '1024x1536',
     quality: 'medium',
     n: 1,
   },
   freemodel: {
     model: 'Qwen/Qwen-Image-Edit',
-    size: '1024x1024',
+    size: '1024x1536',
     quality: 'medium',
     n: 1,
   },

@@ -293,9 +293,11 @@ async function loadCharacterView(item: CharPickerItem, viewIdx: number) {
     return
   }
   const blob = await loadImageBlob(view.imageName)
-  if (!blob) return
-  const fileName = `char-${item.char.name}-${view.label}.png`
-  const file = new File([blob], fileName, { type: blob.type || 'image/png' })
+  if (!blob || blob.size === 0) return
+  const safeType = blob.type?.startsWith('image/') ? blob.type : 'image/png'
+  const ext = safeType.split('/')[1] === 'jpeg' ? 'jpg' : safeType.split('/')[1]
+  const fileName = `char-${item.char.name}-${view.label}.${ext}`
+  const file = new File([blob], fileName, { type: safeType })
   const url = URL.createObjectURL(blob)
   previews.value.push({
     file,
@@ -307,9 +309,31 @@ async function loadCharacterView(item: CharPickerItem, viewIdx: number) {
   closeCharPicker()
 }
 
+const COMPRESSIBLE_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/webp', 'image/bmp', 'image/gif',
+])
+
+function validateImageFile(file: File): string | null {
+  if (COMPRESSIBLE_TYPES.has(file.type)) return null
+  if (!file.type.startsWith('image/')) return `「${file.name}」不是图片文件`
+  // image/heic, image/heif, image/svg+xml, image/tiff 等
+  const ext = file.name.split('.').pop()?.toUpperCase() ?? ''
+  return `「${file.name}」格式 (${file.type || ext}) 不支持，请转为 JPG/PNG 后重试`
+}
+
 async function compressIfNeeded(): Promise<File[] | null> {
   if (compressedCache.length === previews.value.length && compressedCache.length > 0) {
     return compressedCache
+  }
+  // 校验所有文件格式
+  for (const p of previews.value) {
+    const err = validateImageFile(p.file)
+    if (err) {
+      errorMessage.value = err
+      errorCategory.value = 'unknown'
+      phase.value = 'failed'
+      return null
+    }
   }
   phase.value = 'compressing'
   try {
@@ -682,7 +706,7 @@ function goHistory() { router.push('/history') }
           <span class="text-3xl font-light">+</span>
         </button>
       </div>
-      <input ref="fileInput" type="file" accept="image/*" multiple @change="onFilesPicked" class="hidden" />
+      <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/bmp,image/gif" multiple @change="onFilesPicked" class="hidden" />
     </section>
 
     <!-- 颜色 + 故事开关 -->

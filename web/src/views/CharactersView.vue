@@ -176,10 +176,22 @@ async function handleGenerate() {
     return
   }
 
+  const COMPRESSIBLE = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/bmp', 'image/gif'])
+  const pf = photoFile.value
+  if (!COMPRESSIBLE.has(pf.type)) {
+    const ext = pf.name.split('.').pop()?.toUpperCase() ?? ''
+    errorMessage.value = pf.type.startsWith('image/')
+      ? `「${pf.name}」格式 (${pf.type || ext}) 不支持，请转为 JPG/PNG 后重试`
+      : `「${pf.name}」不是图片文件`
+    errorCategory.value = 'unknown'
+    phase.value = 'failed'
+    return
+  }
+
   phase.value = 'compressing'
   let compressed: File
   try {
-    compressed = await imageCompression(photoFile.value, {
+    compressed = await imageCompression(pf, {
       maxSizeMB: 0.5, maxWidthOrHeight: 1024, useWebWorker: true, fileType: 'image/jpeg',
     })
   } catch (e) {
@@ -380,7 +392,7 @@ async function handleDeleteChar() {
           <button type="button" @click="pickPhoto"
             class="absolute inset-x-0 bottom-0 bg-black/60 py-1 text-[10px] text-white backdrop-blur">换图</button>
         </div>
-        <input ref="fileInput" type="file" accept="image/*" @change="onFilePicked" class="hidden" />
+        <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/bmp,image/gif" @change="onFilePicked" class="hidden" />
       </div>
 
       <!-- 名字 + 设定 -->

@@ -70,8 +70,13 @@ const router = useRouter()
 interface Preview {
   file: File
   url: string
-  /** 如果来自角色库, 标记来源, UI 显示 chip + 防止误删 */
-  charSource?: { charId: string; charName: string }
+}
+
+interface CharPreview {
+  file: File
+  url: string
+  charId: string
+  charName: string
 }
 
 interface CharPickerItem {
@@ -80,6 +85,7 @@ interface CharPickerItem {
 }
 
 const previews = ref<Preview[]>([])
+const charPreviews = ref<CharPreview[]>([])
 const selectedStyle = ref<MangaStyleId>('shonenJump')
 const isColor = ref(true)
 const userPrompt = ref('')
@@ -122,17 +128,17 @@ const isWorking = computed(() =>
   ['compressing', 'drafting', 'submitting', 'pending', 'running'].includes(phase.value),
 )
 
+const hasAnyImage = computed(() => previews.value.length > 0 || charPreviews.value.length > 0)
+
 const canDraft = computed(
-  () => previews.value.length > 0 && (phase.value === 'idle' || phase.value === 'failed'),
+  () => hasAnyImage.value && (phase.value === 'idle' || phase.value === 'failed'),
 )
 
 const canSubmit = computed(() => {
-  // 普通模式: 选了图就能直接生成
   if (!storyMode.value) {
-    return previews.value.length > 0 &&
+    return hasAnyImage.value &&
       (phase.value === 'idle' || phase.value === 'done' || phase.value === 'failed')
   }
-  // 故事模式: 必须先有 script
   return !!script.value && phase.value === 'scriptReady'
 })
 
@@ -280,15 +286,15 @@ function backToList() {
   pickerStage.value = 'list'
 }
 
-/** 真正落到 previews 的入口。viewIdx 是该 char.views 数组下标。 */
+/** 角色库选中后落到 charPreviews。viewIdx 是该 char.views 数组下标。 */
 async function loadCharacterView(item: CharPickerItem, viewIdx: number) {
   const view = item.char.views[viewIdx]
   if (!view) return
-  if (previews.value.length >= 5) {
+  if (charPreviews.value.length >= 3) {
     closeCharPicker()
     return
   }
-  if (previews.value.some((p) => p.charSource?.charId === item.char.id)) {
+  if (charPreviews.value.some((c) => c.charId === item.char.id)) {
     closeCharPicker()
     return
   }
@@ -299,14 +305,17 @@ async function loadCharacterView(item: CharPickerItem, viewIdx: number) {
   const fileName = `char-${item.char.name}-${view.label}.${ext}`
   const file = new File([blob], fileName, { type: safeType })
   const url = URL.createObjectURL(blob)
-  previews.value.push({
-    file,
-    url,
-    charSource: { charId: item.char.id, charName: item.char.name },
-  })
+  charPreviews.value.push({ file, url, charId: item.char.id, charName: item.char.name })
   if (storyMode.value) script.value = null
   compressedCache = []
   closeCharPicker()
+}
+
+function removeCharPreview(i: number) {
+  URL.revokeObjectURL(charPreviews.value[i].url)
+  charPreviews.value.splice(i, 1)
+  script.value = null
+  compressedCache = []
 }
 
 const COMPRESSIBLE_TYPES = new Set([
@@ -323,39 +332,26 @@ function validateImageFile(file: File): string | null {
 
 /** 角色参考指令: 告诉 AI 哪些图是角色参考, 要保持外形一致 (对齐 iOS charactersDirective) */
 function buildCharacterDirective(): string | null {
-  const charNames = Array.from(
-    new Set(previews.value.map((p) => p.charSource?.charName).filter((x): x is string => !!x)),
-  )
-  if (charNames.length === 0) return null
+  if (charPreviews.value.length === 0) return null
+  const names = charPreviews.value.map((c) => c.charName)
   return [
     'CHARACTER REFERENCE:',
-    `I have attached ${charNames.length} character reference image(s) at the end of the input set.`,
-    `These represent the recurring characters that should appear in this page (${charNames.join('、')}).`,
+    `I have attached ${names.length} character reference image(s) at the end of the input set.`,
+    `These represent the recurring characters that should appear in this page (${names.join('、')}).`,
     'Match their faces, hair, outfits and overall design EXACTLY as shown. Do not redesign them.',
   ].join(' ')
 }
 
-/**
- * 按 [普通图, 角色参考图] 排序, 同时返回对应的 compressed files。
- * AI 需要角色图在末尾, 跟 iOS 端 images.append(contentsOf: characterReferenceImages) 对齐。
- */
-function reorderWithCharacters(compressed: File[]): File[] {
-  const hasCharSource = previews.value.some((p) => p.charSource)
-  if (!hasCharSource) return compressed
-  const regularIdxs: number[] = []
-  const charIdxs: number[] = []
-  previews.value.forEach((p, i) => {
-    ;(p.charSource ? charIdxs : regularIdxs).push(i)
-  })
-  return [...regularIdxs, ...charIdxs].map((i) => compressed[i])
-}
+const COMPRESSED_TOTAL = computed(() => previews.value.length + charPreviews.value.length)
 
 async function compressIfNeeded(): Promise<File[] | null> {
-  if (compressedCache.length === previews.value.length && compressedCache.length > 0) {
+  const total = COMPRESSED_TOTAL.value
+  if (total === 0) return null
+  if (compressedCache.length === total && compressedCache.length > 0) {
     return compressedCache
   }
   // 校验所有文件格式
-  for (const p of previews.value) {
+  for (const p of [...previews.value, ...charPreviews.value]) {
     const err = validateImageFile(p.file)
     if (err) {
       errorMessage.value = err
@@ -366,15 +362,17 @@ async function compressIfNeeded(): Promise<File[] | null> {
   }
   phase.value = 'compressing'
   try {
-    const out = await Promise.all(
-      previews.value.map((p) =>
-        imageCompression(p.file, {
-          maxSizeMB: 0.5, maxWidthOrHeight: 1024, useWebWorker: true, fileType: 'image/jpeg',
-        }),
-      ),
-    )
-    compressedCache = out
-    return out
+    const compress = (f: File) =>
+      imageCompression(f, {
+        maxSizeMB: 0.5, maxWidthOrHeight: 1024, useWebWorker: true, fileType: 'image/jpeg',
+      })
+    const [sceneOut, charOut] = await Promise.all([
+      Promise.all(previews.value.map((p) => compress(p.file))),
+      Promise.all(charPreviews.value.map((c) => compress(c.file))),
+    ])
+    // 顺序: 素材在前, 角色在后 (对齐 iOS 端)
+    compressedCache = [...sceneOut, ...charOut]
+    return compressedCache
   } catch (e) {
     errorMessage.value = `压缩失败: ${(e as Error).message}`
     errorCategory.value = 'unknown'
@@ -399,28 +397,22 @@ async function handleDraftScript() {
     phase.value = 'failed'
     return
   }
-  if (previews.value.length === 0) return
+  if (!hasAnyImage.value) return
 
   const files = await compressIfNeeded()
   if (!files) return
-
-  // 角色参考图排到末尾
-  const orderedFiles = reorderWithCharacters(files)
 
   const style = getMangaStyle(selectedStyle.value)
   if (!style) return
 
   const storyOpts = loadStoryOptions(provider)
 
-  // 抽出 previews 里来自角色库的 character 信息, 喂给 AI 让它知道主角是谁
-  const charSourceIds = Array.from(
-    new Set(previews.value.map((p) => p.charSource?.charId).filter((x): x is string => !!x)),
-  )
+  // 从 charPreviews 解析角色 bio, 喂给 AI 让它知道主角是谁
   let storyCharacters: { name: string; bio?: string }[] | undefined
-  if (charSourceIds.length > 0) {
+  if (charPreviews.value.length > 0) {
     const allChars = await listCharacters()
-    storyCharacters = charSourceIds
-      .map((id) => allChars.find((c) => c.id === id))
+    storyCharacters = charPreviews.value
+      .map((cp) => allChars.find((c) => c.id === cp.charId))
       .filter((c): c is Character => !!c)
       .map((c) => ({ name: c.name, bio: c.bio }))
   }
@@ -442,7 +434,7 @@ async function handleDraftScript() {
       scriptModel: storyOpts.scriptModel,
       systemPrompt: system,
       userText: user,
-      images: orderedFiles,
+      images: files,
     })
     if (!resp.script) {
       errorMessage.value = resp.error ?? '剧本返回为空'
@@ -492,7 +484,7 @@ async function handleGenerate() {
     phase.value = 'failed'
     return
   }
-  if (previews.value.length === 0) return
+  if (!hasAnyImage.value) return
 
   const compressedFiles = await compressIfNeeded()
   if (!compressedFiles) return
@@ -520,9 +512,6 @@ async function handleGenerate() {
     fullPrompt += `\n\n${charDirective}`
   }
 
-  // 角色参考图排到末尾 (对齐 iOS 端顺序: 用户照片 → 角色参考图)
-  const orderedFiles = reorderWithCharacters(compressedFiles)
-
   phase.value = 'submitting'
   const styleOpts = loadStyleOptions(provider)
   const providerBaseUrl = localStorage.getItem('lifemanga.provider_base_url')?.trim() || undefined
@@ -532,7 +521,7 @@ async function handleGenerate() {
     job = await submitJob({
       apiKey, provider, providerBaseUrl,
       prompt: fullPrompt, model: styleOpts.model, size: styleOpts.size,
-      quality: styleOpts.quality, n: styleOpts.n, images: orderedFiles,
+      quality: styleOpts.quality, n: styleOpts.n, images: compressedFiles,
     })
   } catch (e) {
     if (e instanceof ApiError) {
@@ -688,6 +677,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   previews.value.forEach((p) => URL.revokeObjectURL(p.url))
+  charPreviews.value.forEach((c) => URL.revokeObjectURL(c.url))
   resultUrls.value.forEach((u) => URL.revokeObjectURL(u))
 })
 
@@ -703,16 +693,7 @@ function goHistory() { router.push('/history') }
 
     <!-- 上传区 -->
     <section class="mb-5">
-      <div class="mb-2 flex items-center justify-between">
-        <h2 class="text-sm font-medium text-ink-100">参考图</h2>
-        <button type="button" @click="openCharPicker"
-          class="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-ink-800/60 px-3 py-1 text-[11px] text-ink-300 backdrop-blur transition hover:border-accent-500/40 hover:text-ink-100">
-          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <path d="M16 14a4 4 0 10-8 0M5 21v-2a4 4 0 014-4h6a4 4 0 014 4v2"/>
-          </svg>
-          载入角色
-        </button>
-      </div>
+      <h2 class="mb-2 text-sm font-medium text-ink-100">素材图片</h2>
       <div v-if="previews.length === 0">
         <button type="button" @click="pickFiles"
           class="flex w-full flex-col items-center justify-center gap-2.5 rounded-2xl border border-white/10 bg-ink-800/60 px-6 py-9 text-ink-300 backdrop-blur-md transition hover:border-accent-500/40 hover:bg-ink-800/80">
@@ -736,11 +717,6 @@ function goHistory() { router.push('/history') }
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
-          <!-- 来自角色库的标记 -->
-          <div v-if="p.charSource"
-            class="absolute inset-x-0 bottom-0 bg-accent-500/80 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur">
-            👤 {{ p.charSource.charName }}
-          </div>
         </div>
         <button v-if="previews.length < 5" type="button" @click="pickFiles"
           class="flex aspect-square items-center justify-center rounded-xl border border-dashed border-white/15 bg-ink-800/40 text-ink-300 transition hover:border-accent-500/40 hover:bg-ink-800/80 hover:text-accent-300">
@@ -748,6 +724,37 @@ function goHistory() { router.push('/history') }
         </button>
       </div>
       <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/bmp,image/gif" multiple @change="onFilesPicked" class="hidden" />
+    </section>
+
+    <!-- 角色参考区 -->
+    <section class="mb-5">
+      <div class="mb-2 flex items-center justify-between">
+        <h2 class="text-sm font-medium text-ink-100">角色参考</h2>
+        <button type="button" @click="openCharPicker" :disabled="charPreviews.length >= 3"
+          class="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-ink-800/60 px-3 py-1 text-[11px] text-ink-300 backdrop-blur transition hover:border-accent-500/40 hover:text-ink-100 disabled:opacity-40">
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M16 14a4 4 0 10-8 0M5 21v-2a4 4 0 014-4h6a4 4 0 014 4v2"/>
+          </svg>
+          载入角色
+        </button>
+      </div>
+      <div v-if="charPreviews.length === 0" class="rounded-xl border border-dashed border-white/10 bg-ink-800/30 px-4 py-3 text-center text-[11px] text-ink-400">
+        从角色库载入角色，AI 会保持角色外形一致（最多 3 个）
+      </div>
+      <div v-else class="grid grid-cols-3 gap-2">
+        <div v-for="(c, i) in charPreviews" :key="c.charId" class="relative aspect-square overflow-hidden rounded-xl border border-accent-500/30 bg-ink-800">
+          <img :src="c.url" class="h-full w-full object-cover" />
+          <button type="button" @click="removeCharPreview(i)"
+            class="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1.5 text-white backdrop-blur transition hover:bg-black/80">
+            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <div class="absolute inset-x-0 bottom-0 bg-accent-500/80 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur">
+            {{ c.charName }}
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- 颜色 + 故事开关 -->

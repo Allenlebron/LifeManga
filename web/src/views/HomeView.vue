@@ -830,7 +830,7 @@ function goHistory() { router.push('/history') }
     </section>
 
     <!-- 主生成按钮 (普通: "生成漫画"; 故事模式&有剧本: "用此剧本生成漫画") -->
-    <section v-if="!storyMode || script" class="mb-6">
+    <section v-if="!storyMode || script || phase === 'failed'" class="mb-6">
       <button type="button" @click="handleGenerate" :disabled="!canSubmit"
         class="relative flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-xl px-6 py-3.5 text-sm font-semibold transition"
         :class="[canSubmit

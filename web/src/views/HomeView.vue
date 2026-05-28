@@ -321,6 +321,35 @@ function validateImageFile(file: File): string | null {
   return `「${file.name}」格式 (${file.type || ext}) 不支持，请转为 JPG/PNG 后重试`
 }
 
+/** 角色参考指令: 告诉 AI 哪些图是角色参考, 要保持外形一致 (对齐 iOS charactersDirective) */
+function buildCharacterDirective(): string | null {
+  const charNames = Array.from(
+    new Set(previews.value.map((p) => p.charSource?.charName).filter((x): x is string => !!x)),
+  )
+  if (charNames.length === 0) return null
+  return [
+    'CHARACTER REFERENCE:',
+    `I have attached ${charNames.length} character reference image(s) at the end of the input set.`,
+    `These represent the recurring characters that should appear in this page (${charNames.join('、')}).`,
+    'Match their faces, hair, outfits and overall design EXACTLY as shown. Do not redesign them.',
+  ].join(' ')
+}
+
+/**
+ * 按 [普通图, 角色参考图] 排序, 同时返回对应的 compressed files。
+ * AI 需要角色图在末尾, 跟 iOS 端 images.append(contentsOf: characterReferenceImages) 对齐。
+ */
+function reorderWithCharacters(compressed: File[]): File[] {
+  const hasCharSource = previews.value.some((p) => p.charSource)
+  if (!hasCharSource) return compressed
+  const regularIdxs: number[] = []
+  const charIdxs: number[] = []
+  previews.value.forEach((p, i) => {
+    ;(p.charSource ? charIdxs : regularIdxs).push(i)
+  })
+  return [...regularIdxs, ...charIdxs].map((i) => compressed[i])
+}
+
 async function compressIfNeeded(): Promise<File[] | null> {
   if (compressedCache.length === previews.value.length && compressedCache.length > 0) {
     return compressedCache
@@ -375,6 +404,9 @@ async function handleDraftScript() {
   const files = await compressIfNeeded()
   if (!files) return
 
+  // 角色参考图排到末尾
+  const orderedFiles = reorderWithCharacters(files)
+
   const style = getMangaStyle(selectedStyle.value)
   if (!style) return
 
@@ -410,7 +442,7 @@ async function handleDraftScript() {
       scriptModel: storyOpts.scriptModel,
       systemPrompt: system,
       userText: user,
-      images: files,
+      images: orderedFiles,
     })
     if (!resp.script) {
       errorMessage.value = resp.error ?? '剧本返回为空'
@@ -482,6 +514,15 @@ async function handleGenerate() {
       : stylePrompt
   }
 
+  // 角色参考指令: 告诉 AI 末尾的图是角色参考, 要保持外形一致
+  const charDirective = buildCharacterDirective()
+  if (charDirective) {
+    fullPrompt += `\n\n${charDirective}`
+  }
+
+  // 角色参考图排到末尾 (对齐 iOS 端顺序: 用户照片 → 角色参考图)
+  const orderedFiles = reorderWithCharacters(compressedFiles)
+
   phase.value = 'submitting'
   const styleOpts = loadStyleOptions(provider)
   const providerBaseUrl = localStorage.getItem('lifemanga.provider_base_url')?.trim() || undefined
@@ -491,7 +532,7 @@ async function handleGenerate() {
     job = await submitJob({
       apiKey, provider, providerBaseUrl,
       prompt: fullPrompt, model: styleOpts.model, size: styleOpts.size,
-      quality: styleOpts.quality, n: styleOpts.n, images: compressedFiles,
+      quality: styleOpts.quality, n: styleOpts.n, images: orderedFiles,
     })
   } catch (e) {
     if (e instanceof ApiError) {

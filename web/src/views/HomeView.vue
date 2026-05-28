@@ -3,6 +3,7 @@ import imageCompression from 'browser-image-compression'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
+  bubbleDirective,
   buildRenderPrompt,
   buildStoryPrompts,
   effectivePrompt,
@@ -500,10 +501,13 @@ async function handleGenerate() {
     fullPrompt = buildRenderPrompt(style, script.value, storyOpts.bubbleTextMode, isColor.value)
     storyForSave = script.value
   } else {
+    const styleOpts2 = loadStoryOptions(provider)
     const stylePrompt = effectivePrompt(style, isColor.value)
-    fullPrompt = userPrompt.value.trim()
-      ? `${stylePrompt}\n\nUSER ADDITIONAL CONTEXT:\n${userPrompt.value.trim()}`
-      : stylePrompt
+    const parts = [stylePrompt, bubbleDirective(styleOpts2.bubbleTextMode)]
+    if (userPrompt.value.trim()) {
+      parts.push(`Additional user note: ${userPrompt.value.trim()}`)
+    }
+    fullPrompt = parts.join('\n\n')
   }
 
   // 角色参考指令: 告诉 AI 末尾的图是角色参考, 要保持外形一致

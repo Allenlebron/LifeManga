@@ -149,6 +149,28 @@ import type { MangaStoryScript } from './MangaItem'
 /** 气泡文字模式: 5 种, 跟 iOS AppSettings.bubbleTextModes 对齐 */
 export type BubbleTextMode = 'chinese' | 'japanese' | 'english' | 'empty' | 'none'
 
+// MARK: - BubbleDirective (从 iOS 端 BubbleDirective enum 1:1 翻)
+
+/** 普通模式下的气泡指令, 追加到 stylePrompt 后面 (对齐 iOS BubbleDirective.simpleMode) */
+export function bubbleDirective(mode: BubbleTextMode): string {
+  switch (mode) {
+    case 'none':
+      return 'BUBBLE / TEXT INSTRUCTION (override anything else):\nDo NOT draw any speech bubbles, caption boxes, or dialogue text on this page. Pure visual illustration only. Sound-effect kanji/katakana lettering integrated into the artwork is still allowed if appropriate to the style.'
+    case 'empty':
+      return 'BUBBLE / TEXT INSTRUCTION:\nIf you draw speech bubbles or caption boxes, leave them COMPLETELY EMPTY — do NOT write any text inside them. Sound-effect lettering is still allowed.'
+    case 'japanese':
+      return 'BUBBLE / TEXT INSTRUCTION:\nIf you add speech bubbles, render the dialogue inside them in JAPANESE (hiragana/katakana, short natural manga-style lines, ≤ 8 kana per bubble). Do NOT use English. Do NOT use Chinese.'
+    case 'english':
+      return 'BUBBLE / TEXT INSTRUCTION:\nIf you add speech bubbles, render the dialogue inside them in ENGLISH (short natural English manga-style lines).'
+    default: // 'chinese'
+      return 'BUBBLE / TEXT INSTRUCTION:\nIf you add speech bubbles, render the dialogue inside them in SIMPLIFIED CHINESE (短的中文台词，自然的漫画对话，每个气泡 ≤ 12 字). Do NOT use English. Do NOT use Japanese kana.'
+  }
+}
+
+/** "前一张"风格延续指令 (对齐 iOS BubbleDirective.continuityDirective) */
+export const CONTINUITY_DIRECTIVE = `STYLE & STORY CONTINUITY:
+The FIRST attached reference image is the PREVIOUS manga page from the same comic. Treat it as the gold standard for art style, line weight, character designs, costume details, and overall aesthetic. The new page must look like it could come right after that page in the same printed book. If recurring characters appear, KEEP their faces, hair, and outfits identical. Continue the visual narrative naturally — do not reset the style.`
+
 function clean(s: string | undefined | null): string | null {
   if (!s) return null
   const t = s.trim()

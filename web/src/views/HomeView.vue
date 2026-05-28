@@ -246,8 +246,8 @@ function closeCharPicker() {
  * - char.views.length > 1 → 进二级, 加载所有 view 缩略图, 让用户选
  */
 async function pickCharacter(item: CharPickerItem) {
-  if (previews.value.length >= 5) return
-  if (previews.value.some((p) => p.charSource?.charId === item.char.id)) return
+  if (charPreviews.value.length >= 3) return
+  if (charPreviews.value.some((c) => c.charId === item.char.id)) return
 
   if (item.char.views.length <= 1) {
     await loadCharacterView(item, 0)

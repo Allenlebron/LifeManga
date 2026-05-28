@@ -130,13 +130,13 @@ export const DEFAULT_STORY_OPTIONS_BY_PROVIDER: Record<ProviderId, StoryOptions>
   siliconflow: {
     enabled: false,
     panelCount: 6,
-    scriptModel: 'Qwen/Qwen2.5-VL-7B-Instruct',
+    scriptModel: 'Qwen/Qwen3-VL-8B-Instruct',
     bubbleTextMode: 'chinese',
   },
   freemodel: {
     enabled: false,
     panelCount: 6,
-    scriptModel: 'Qwen/Qwen2.5-VL-7B-Instruct',
+    scriptModel: 'Qwen/Qwen3-VL-8B-Instruct',
     bubbleTextMode: 'chinese',
   },
 }
@@ -145,6 +145,7 @@ const STORY_KEY = 'lifemanga.story_options'
 
 const DISABLED_MODELS = new Set([
   'Qwen/Qwen2.5-VL-72B-Instruct',
+  'Qwen/Qwen2.5-VL-7B-Instruct',
 ])
 
 export function loadStoryOptions(provider: ProviderId): StoryOptions {

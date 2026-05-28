@@ -130,18 +130,22 @@ export const DEFAULT_STORY_OPTIONS_BY_PROVIDER: Record<ProviderId, StoryOptions>
   siliconflow: {
     enabled: false,
     panelCount: 6,
-    scriptModel: 'Qwen/Qwen2.5-VL-72B-Instruct',
+    scriptModel: 'Qwen/Qwen2.5-VL-7B-Instruct',
     bubbleTextMode: 'chinese',
   },
   freemodel: {
     enabled: false,
     panelCount: 6,
-    scriptModel: 'Qwen/Qwen2.5-VL-72B-Instruct',
+    scriptModel: 'Qwen/Qwen2.5-VL-7B-Instruct',
     bubbleTextMode: 'chinese',
   },
 }
 
 const STORY_KEY = 'lifemanga.story_options'
+
+const DISABLED_MODELS = new Set([
+  'Qwen/Qwen2.5-VL-72B-Instruct',
+])
 
 export function loadStoryOptions(provider: ProviderId): StoryOptions {
   const raw = localStorage.getItem(STORY_KEY)
@@ -156,10 +160,11 @@ export function loadStoryOptions(provider: ProviderId): StoryOptions {
         typeof parsed.scriptModel === 'string' &&
         typeof parsed.bubbleTextMode === 'string'
       ) {
+        const fallback = DEFAULT_STORY_OPTIONS_BY_PROVIDER[provider]
         return {
           enabled: parsed.enabled,
           panelCount: Math.max(2, Math.min(9, parsed.panelCount)),
-          scriptModel: parsed.scriptModel,
+          scriptModel: DISABLED_MODELS.has(parsed.scriptModel) ? fallback.scriptModel : parsed.scriptModel,
           bubbleTextMode: parsed.bubbleTextMode as BubbleTextMode,
         }
       }

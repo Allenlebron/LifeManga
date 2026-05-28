@@ -277,6 +277,33 @@ export function buildRenderPrompt(
     }
   })
 
+  lines.push('')
+  lines.push('RENDERING RULES:')
+  if (isColor) {
+    lines.push('- FULL COLOR rendering with vivid harmonious manga/anime palette. Strong ink linework + cel-shaded coloring + atmospheric lighting.')
+  } else {
+    lines.push('- Pure black-and-white ink, no color whatsoever.')
+  }
+  switch (bubbleMode) {
+    case 'none':
+      lines.push('- DO NOT draw ANY speech bubbles or caption boxes anywhere on the page. Pure visual storytelling. Sound-effect lettering integrated into the artwork is the ONLY allowed text.')
+      break
+    case 'empty':
+      lines.push('- DO NOT render ANY readable text inside bubbles or caption boxes (must remain completely empty). Sound effects (katakana) are the ONLY allowed text.')
+      break
+    case 'chinese':
+      lines.push('- All Chinese dialogue/narration text MUST be reproduced VERBATIM, large enough that every stroke is crisp and readable. Use a brush-style display font for impact. Do NOT use English or Japanese.')
+      break
+    case 'english':
+      lines.push('- All bubble/caption text must be in clean readable English. Do NOT use Chinese or Japanese in bubbles.')
+      break
+    default: // japanese
+      lines.push('- Render Japanese kana text in bubbles VERBATIM, large and crisp. Do not invent additional Chinese or English text.')
+  }
+  lines.push('- Sound effects: large dramatic stylized lettering integrated into the artwork.')
+  lines.push('- Maintain visual consistency of any recurring character/location across panels.')
+  lines.push('- Page composition should feel like a real Weekly Shonen Jump / seinen manga page.')
+
   return lines.join('\n')
 }
 

@@ -235,7 +235,7 @@ async function handleClear() {
           <input v-model="storyOptions.scriptModel" type="text"
             class="mt-1 w-full rounded-lg border border-white/10 bg-ink-900/70 px-3 py-2 font-mono text-xs text-ink-50 focus:border-accent-500/60 focus:outline-none" />
           <p class="mt-1 text-[10px] text-ink-300">
-            OpenAI 推荐 gpt-4o-mini · SF 推荐 Qwen/Qwen3-VL-8B-Instruct
+            OpenAI 推荐 gpt-4o-mini · SF 推荐 zai-org/GLM-4.6V
           </p>
         </div>
         <div>

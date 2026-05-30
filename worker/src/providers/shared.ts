@@ -65,6 +65,7 @@ export const PROVIDER_DEFAULT_BASE_URL: Record<string, string> = {
   openai: 'https://api.openai.com',
   siliconflow: 'https://api.siliconflow.cn',
   freemodel: 'https://api.freemodel.dev',
+  chatimage: 'http://127.0.0.1:8000',
 }
 
 /** Provider 调用结果。 */

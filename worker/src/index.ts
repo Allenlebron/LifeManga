@@ -108,7 +108,7 @@ async function handleSubmitJob(request: Request, env: Env): Promise<Response> {
 
   // provider: openai | siliconflow | freemodel。默认 siliconflow（学习/测试默认）
   const providerRaw = String(form.get('provider') ?? 'siliconflow').toLowerCase()
-  const validProviders: Provider[] = ['openai', 'siliconflow', 'freemodel']
+  const validProviders: Provider[] = ['openai', 'siliconflow', 'freemodel', 'chatimage']
   if (!validProviders.includes(providerRaw as Provider)) {
     return json(
       { error: `Invalid provider: ${providerRaw}. Expected one of: ${validProviders.join(', ')}` },
@@ -122,7 +122,9 @@ async function handleSubmitJob(request: Request, env: Env): Promise<Response> {
   const baseUrl = baseUrlRaw || undefined
 
   // model 默认按 provider 区分
-  const defaultModel = provider === 'openai' ? 'gpt-image-2' : 'Qwen/Qwen-Image-Edit'
+  const defaultModel = provider === 'openai' ? 'gpt-image-2'
+    : provider === 'chatimage' ? 'gemini-3.0-pro-image-three-four'
+    : 'Qwen/Qwen-Image-Edit'
   const model = String(form.get('model') ?? defaultModel)
 
   const n = parseInt(String(form.get('n') ?? '1'), 10)
@@ -205,7 +207,7 @@ async function handleSubmitStory(request: Request): Promise<Response> {
   }
 
   const providerRaw = String(form.get('provider') ?? 'siliconflow').toLowerCase()
-  const validProviders: Provider[] = ['openai', 'siliconflow', 'freemodel']
+  const validProviders: Provider[] = ['openai', 'siliconflow', 'freemodel', 'chatimage']
   if (!validProviders.includes(providerRaw as Provider)) {
     return json({ error: `Invalid provider: ${providerRaw}` }, 400)
   }

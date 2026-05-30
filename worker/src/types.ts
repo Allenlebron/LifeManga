@@ -24,7 +24,7 @@ export type JobStatus =
   | 'canceled' // 用户主动取消 (本期 v0.1 不实现, 留接口)
 
 /** 支持的 image API provider。 */
-export type Provider = 'openai' | 'siliconflow' | 'freemodel'
+export type Provider = 'openai' | 'siliconflow' | 'freemodel' | 'chatimage'
 
 /** 提交一个 job 的参数 (DO 内部格式)。 */
 export interface JobInput {

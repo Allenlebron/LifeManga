@@ -17,6 +17,7 @@ const PROVIDERS: { id: ProviderId; label: string; hint: string }[] = [
   { id: 'siliconflow', label: 'SiliconFlow', hint: '硅基流动 · 国内可直连 · Qwen Image' },
   { id: 'openai', label: 'OpenAI', hint: 'gpt-image-2 · 需翻墙 + 验证' },
   { id: 'freemodel', label: 'FreeModel', hint: '兼容 SF JSON 协议' },
+  { id: 'chatimage', label: 'Chat Image', hint: 'Chat Completions 出图 · 本地 API / Gemini' },
 ]
 
 const provider = ref<ProviderId>('siliconflow')

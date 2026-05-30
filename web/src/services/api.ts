@@ -7,7 +7,7 @@ import type { JobStyleOptions } from '../models/JobOptions'
 
 const DEFAULT_WORKER_URL = 'https://lifemanga-worker.myzwilpan.workers.dev'
 
-export type ProviderId = 'openai' | 'siliconflow' | 'freemodel'
+export type ProviderId = 'openai' | 'siliconflow' | 'freemodel' | 'chatimage'
 
 export type JobStatus =
   | 'pending'

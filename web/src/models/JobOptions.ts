@@ -36,6 +36,12 @@ export const DEFAULT_OPTIONS_BY_PROVIDER: Record<ProviderId, JobStyleOptions> = 
     quality: 'medium',
     n: 1,
   },
+  chatimage: {
+    model: 'gemini-3.0-pro-image-three-four',
+    size: '1024x1536',
+    quality: 'medium',
+    n: 1,
+  },
 }
 
 /** 各 provider 允许的 size 选项 (UI 下拉用)。 */
@@ -43,6 +49,7 @@ export const SIZE_OPTIONS_BY_PROVIDER: Record<ProviderId, string[]> = {
   openai: ['auto', '1024x1024', '1024x1536', '1536x1024'],
   siliconflow: ['1024x1024', '1024x1536', '1536x1024', '1280x720', '720x1280'],
   freemodel: ['1024x1024', '1024x1536', '1536x1024'],
+  chatimage: ['1024x1024', '1024x1536', '1536x1024'],
 }
 
 /** Provider 对应的 BYOK key 在 localStorage 里的 key 名。 */
@@ -137,6 +144,12 @@ export const DEFAULT_STORY_OPTIONS_BY_PROVIDER: Record<ProviderId, StoryOptions>
     enabled: false,
     panelCount: 6,
     scriptModel: 'Qwen/Qwen3-VL-8B-Instruct',
+    bubbleTextMode: 'chinese',
+  },
+  chatimage: {
+    enabled: false,
+    panelCount: 6,
+    scriptModel: 'gemini-3.0-pro-image-three-four',
     bubbleTextMode: 'chinese',
   },
 }

@@ -94,9 +94,11 @@ export async function callChatCompletion(input: ChatVisionInput): Promise<string
   }
 
   const json = (await res.json()) as ChatResponse
-  const content = json.choices?.[0]?.message?.content ?? ''
+  let content = json.choices?.[0]?.message?.content ?? ''
   if (!content) {
     throw new ProviderError(502, 'Chat completion returned empty content', 'empty_content')
   }
+  // 部分模型 (如 GLM-4.5V) 会用特殊标签包裹输出, 需要剥离
+  content = content.replace(/<\|begin_of_box\|>/g, '').replace(/<\|end_of_box\|>/g, '').trim()
   return content
 }

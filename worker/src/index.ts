@@ -255,7 +255,7 @@ async function handleSubmitStory(request: Request): Promise<Response> {
       userText,
       images,
       maxCompletionTokens: 4000,
-      jsonMode: true,
+      jsonMode: false,
     })
   } catch (err) {
     if (err instanceof ProviderError) {

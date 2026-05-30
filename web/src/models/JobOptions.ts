@@ -125,6 +125,12 @@ export interface StoryOptions {
   scriptModel: string
   /** 气泡里写什么文字 */
   bubbleTextMode: BubbleTextMode
+  /** 编剧用的 provider (可与出图 provider 不同) */
+  scriptProvider?: ProviderId
+  /** 编剧 provider 的 base URL (可选, 留空用 provider 默认) */
+  scriptBaseUrl?: string
+  /** 编剧 provider 的 API key (可选, 留空用该 provider 已保存的 key) */
+  scriptApiKey?: string
 }
 
 export const DEFAULT_STORY_OPTIONS_BY_PROVIDER: Record<ProviderId, StoryOptions> = {
@@ -149,8 +155,9 @@ export const DEFAULT_STORY_OPTIONS_BY_PROVIDER: Record<ProviderId, StoryOptions>
   chatimage: {
     enabled: false,
     panelCount: 6,
-    scriptModel: 'gemini-3.0-pro-image-three-four',
+    scriptModel: 'Qwen/Qwen3-VL-8B-Instruct',
     bubbleTextMode: 'chinese',
+    scriptProvider: 'siliconflow',
   },
 }
 
@@ -180,6 +187,9 @@ export function loadStoryOptions(provider: ProviderId): StoryOptions {
           panelCount: Math.max(2, Math.min(9, parsed.panelCount)),
           scriptModel: DISABLED_MODELS.has(parsed.scriptModel) ? fallback.scriptModel : parsed.scriptModel,
           bubbleTextMode: parsed.bubbleTextMode as BubbleTextMode,
+          scriptProvider: parsed.scriptProvider ?? fallback.scriptProvider,
+          scriptBaseUrl: parsed.scriptBaseUrl ?? fallback.scriptBaseUrl,
+          scriptApiKey: parsed.scriptApiKey ?? fallback.scriptApiKey,
         }
       }
     } catch {

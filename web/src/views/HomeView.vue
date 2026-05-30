@@ -391,9 +391,13 @@ async function handleDraftScript() {
   script.value = null
 
   const provider = loadCurrentProvider()
-  const apiKey = loadApiKey(provider)
-  if (!apiKey) {
-    errorMessage.value = `请先去「设置」填写 ${provider} 的 API Key`
+  const storyOpts = loadStoryOptions(provider)
+
+  // 编剧可以用独立的 provider (比如出图用 chatimage, 编剧用 siliconflow)
+  const scriptProvider = storyOpts.scriptProvider || provider
+  const scriptApiKey = storyOpts.scriptApiKey || loadApiKey(scriptProvider)
+  if (!scriptApiKey) {
+    errorMessage.value = `请先去「设置」填写 ${scriptProvider} 的 API Key`
     errorCategory.value = 'auth'
     phase.value = 'failed'
     return
@@ -405,8 +409,6 @@ async function handleDraftScript() {
 
   const style = getMangaStyle(selectedStyle.value)
   if (!style) return
-
-  const storyOpts = loadStoryOptions(provider)
 
   // 从 charPreviews 解析角色 bio, 喂给 AI 让它知道主角是谁
   let storyCharacters: { name: string; bio?: string }[] | undefined
@@ -424,14 +426,14 @@ async function handleDraftScript() {
     userPrompt.value,
     storyCharacters,
   )
-  const providerBaseUrl = localStorage.getItem('lifemanga.provider_base_url')?.trim() || undefined
+  const scriptBaseUrl = storyOpts.scriptBaseUrl || localStorage.getItem('lifemanga.provider_base_url')?.trim() || undefined
 
   phase.value = 'drafting'
   try {
     const resp = await submitStoryScript({
-      apiKey,
-      provider,
-      providerBaseUrl,
+      apiKey: scriptApiKey,
+      provider: scriptProvider,
+      providerBaseUrl: scriptBaseUrl,
       scriptModel: storyOpts.scriptModel,
       systemPrompt: system,
       userText: user,

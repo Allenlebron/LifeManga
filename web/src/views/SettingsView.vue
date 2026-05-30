@@ -213,11 +213,29 @@ async function handleClear() {
           <p class="mt-1 text-[10px] text-ink-300">2~9 格, 越多越费 token</p>
         </div>
         <div>
+          <label class="text-xs text-ink-300">编剧 Provider（可与出图不同）</label>
+          <select v-model="storyOptions.scriptProvider"
+            class="mt-1 w-full rounded-lg border border-white/10 bg-ink-900/70 px-3 py-2 text-sm text-ink-50 focus:border-accent-500/60 focus:outline-none">
+            <option :value="undefined">跟出图一致</option>
+            <option v-for="p in PROVIDERS" :key="p.id" :value="p.id">{{ p.label }}</option>
+          </select>
+        </div>
+        <div v-if="storyOptions.scriptProvider">
+          <label class="text-xs text-ink-300">编剧 Base URL（可选）</label>
+          <input v-model="storyOptions.scriptBaseUrl" type="text" placeholder="留空 = provider 默认"
+            class="mt-1 w-full rounded-lg border border-white/10 bg-ink-900/70 px-3 py-2 font-mono text-xs text-ink-50 focus:border-accent-500/60 focus:outline-none" />
+        </div>
+        <div v-if="storyOptions.scriptProvider">
+          <label class="text-xs text-ink-300">编剧 API Key（可选，留空用该 provider 已保存的 key）</label>
+          <input v-model="storyOptions.scriptApiKey" type="password" placeholder="留空 = 用设置页已保存的 key"
+            class="mt-1 w-full rounded-lg border border-white/10 bg-ink-900/70 px-3 py-2 font-mono text-xs text-ink-50 focus:border-accent-500/60 focus:outline-none" />
+        </div>
+        <div>
           <label class="text-xs text-ink-300">编剧模型 (vision-capable)</label>
           <input v-model="storyOptions.scriptModel" type="text"
             class="mt-1 w-full rounded-lg border border-white/10 bg-ink-900/70 px-3 py-2 font-mono text-xs text-ink-50 focus:border-accent-500/60 focus:outline-none" />
           <p class="mt-1 text-[10px] text-ink-300">
-            OpenAI 推荐 gpt-4o-mini · SF 推荐 Qwen/Qwen2.5-VL-72B-Instruct
+            OpenAI 推荐 gpt-4o-mini · SF 推荐 Qwen/Qwen3-VL-8B-Instruct
           </p>
         </div>
         <div>
